@@ -4,6 +4,7 @@ let scanner = null;
 let scanning = false;
 let lastScannedCode = null;
 let intakeSource = 'manual'; // scan | manual | plus
+
 // DOM
 const cameraBox = document.getElementById('cameraBox');
 const statusEl = document.getElementById('status');
@@ -32,7 +33,7 @@ function toast(msg){
 }
 
 function openIntakeModal({ code, prefillName = '', lock = false, source = 'manual' }) {
-  intakeSource = source; // 👈 запоминаем источник
+  intakeSource = source;
 
   mError.textContent = '';
   mCode.value = String(code || '').replace(/\s+/g, '');
@@ -40,7 +41,6 @@ function openIntakeModal({ code, prefillName = '', lock = false, source = 'manua
   mQty.value = '';
   mFrom.value = '';
 
-  // 🔒 если приход по существующему товару — не даём менять код/название
   mCode.disabled = !!lock;
   mName.disabled = !!lock;
 
@@ -59,7 +59,8 @@ function closeContinueModal(){
 }
 
 async function startScanner(){
-  const u = store.currentUserObj();
+  // ✅ FIX: await
+  const u = await store.currentUserObj();
   if (!u || u.role !== 'user') {
     toast('Нет доступа к камере (только для кладовщика).');
     return;
@@ -102,20 +103,18 @@ async function onScanSuccess(code){
   if (!scanning) return;
 
   const clean = String(code).replace(/\s+/g,'');
-  // защита от "дробления" одного и того же кода подряд
   if (clean && clean === lastScannedCode) return;
   lastScannedCode = clean;
 
-  // останавливаем камеру, чтобы пользователь спокойно ввёл данные
   await stopScanner();
 
   const item = store.getItemByCodeForCurrentObject(clean);
   openIntakeModal({
-  code,
-  prefillName: item?.name || '',
-  lock: !!item,      // если товар уже есть — блокируем имя/код
-  source: 'scan'     // 👈 важно!
-});
+    code,
+    prefillName: item?.name || '',
+    lock: !!item,
+    source: 'scan'
+  });
 }
 
 function validateQty(val){
@@ -124,7 +123,7 @@ function validateQty(val){
 }
 
 // SAVE приход
-mSave.onclick = () => {
+mSave.onclick = async () => {
   const code = mCode.value.replace(/\s+/g,'');
   const name = mName.value.trim();
   const qty  = mQty.value;
@@ -134,17 +133,16 @@ mSave.onclick = () => {
   if (!name) { mError.textContent = 'Введите название'; return; }
   if (!validateQty(qty)) { mError.textContent = 'Количество должно быть числом > 0'; return; }
 
-  const res = store.addOperation({ code, name, qty: Number(qty), from, type:'in' });
+  const res = await store.addOperation({ code, name, qty: Number(qty), from, type:'in' });
   if (!res.ok) {
-    mError.textContent = 'Ошибка сохранения';
+    mError.textContent = `Ошибка сохранения: ${res.error || 'server'}`;
     return;
   }
 
   closeIntakeModal();
-  window.renderList?.(); // перерисовать список
-   toast('✅ Сохранено');
+  window.renderList?.();
+  toast('✅ Сохранено');
 
-  // спрашиваем "продолжить сканирование" ТОЛЬКО если источник = scan
   if (intakeSource === 'scan') {
     openContinueModal();
   }
@@ -152,10 +150,8 @@ mSave.onclick = () => {
 
 mCancel.onclick = () => {
   closeIntakeModal();
-  // если отменил — не продолжаем скан автоматически
 };
 
-// continue scan?
 contYes.onclick = async () => {
   closeContinueModal();
   await startScanner();
@@ -164,12 +160,13 @@ contNo.onclick = () => {
   closeContinueModal();
 };
 
-// manual add -> тоже через intake modal
-manualBtn.onclick = () => {
-  const u = store.currentUserObj();
+// manual add
+manualBtn.onclick = async () => {
+  // ✅ FIX: await
+  const u = await store.currentUserObj();
   if (!u || u.role !== 'user') { toast('Только кладовщик может добавлять.'); return; }
 
-  openIntakeModal({ code: '', prefillName: '', lock: false, source: 'manual' }); // 👈 manual
+  openIntakeModal({ code: '', prefillName: '', lock: false, source: 'manual' });
 };
 
 // buttons
@@ -184,10 +181,10 @@ window.intakeApi = {
       code: item.code,
       prefillName: item.name,
       lock: true,
-      source: 'plus' // 👈 plus
+      source: 'plus'
     });
   },
   openManualBlank: () => openIntakeModal({ code: '', prefillName: '', lock: false, source: 'manual' })
 };
-// export (если нужно из app.js)
+
 window.scannerApi = { startScanner, stopScanner };

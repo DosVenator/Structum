@@ -14,6 +14,7 @@ async function api(path, { method = 'GET', body } = {}) {
 
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
+
   if (!res.ok) {
     const err = new Error(data?.error || 'api-error');
     err.status = res.status;
@@ -28,9 +29,9 @@ async function loginUser(login, password) {
   try {
     const r = await api('/api/login', { method: 'POST', body: { login, password } });
     _me = r.user;
-    return true;
-  } catch {
-    return false;
+    return { ok: true, user: _me };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message };
   }
 }
 
@@ -77,12 +78,11 @@ function getItemByCodeForCurrentObject(code) {
   return _items.find(i => i.code === clean) || null;
 }
 
-// операции
+// operations
 async function addOperation({ code, name, qty, from, type }) {
   try {
     const r = await api('/api/ops', { method: 'POST', body: { code, name, qty, from, type } });
 
-    // обновим кеш items (чтобы UI сразу обновился)
     const updated = r.item;
     const idx = _items.findIndex(x => x.id === updated.id);
     if (idx >= 0) _items[idx] = updated;
@@ -90,7 +90,7 @@ async function addOperation({ code, name, qty, from, type }) {
 
     return { ok: true, item: updated };
   } catch (e) {
-    return { ok: false, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
   }
 }
 
@@ -111,13 +111,11 @@ async function adminGetReport({ objectId, fromTs, toTs, itemCode }) {
     const r = await api('/api/report?' + qs.toString());
     return { ok: true, rows: r.rows || [] };
   } catch (e) {
-    return { ok: false, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
   }
 }
 
-// ВНИМАНИЕ: transfers и админ-CRUD (создать объект/пользователя)
-// пока оставим заглушками, чтобы проект стартанул без ошибок UI.
-// Дальше допилим.
+// stubs (пока не реализовано)
 function getUsers() { return []; }
 async function adminCreateObject() { return { ok: false, error: 'not-implemented' }; }
 async function adminCreateUser() { return { ok: false, error: 'not-implemented' }; }
@@ -145,7 +143,6 @@ window.store = {
 
   adminGetReport,
 
-  // заглушки (чтобы UI не падал)
   getUsers,
   adminCreateObject,
   adminCreateUser,

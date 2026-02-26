@@ -468,10 +468,11 @@ if (adminReportBtn) adminReportBtn.onclick = openReportModal;
 // login/logout
 // ================================
 loginBtn.onclick = async () => {
-  const ok = await store.loginUser(loginInput.value.trim(), passInput.value.trim());
-  if (!ok) {
-    loginError.textContent = '❌ Неверный логин или пароль';
-    setTimeout(() => (loginError.textContent=''), 2500);
+  const res = await store.loginUser(loginInput.value.trim(), passInput.value.trim());
+  if (!res.ok) {
+    // ✅ теперь видно реальную причину: 401 invalid или 500 server/session/db
+    loginError.textContent = `❌ Ошибка входа: ${res.status || ''} ${res.error || ''}`.trim();
+    setTimeout(() => (loginError.textContent=''), 4000);
     return;
   }
 
