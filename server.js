@@ -293,7 +293,8 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 /* ===========================
-   TRANSFERS (ПЕРЕДАЧИ)
+   TRANSFERS (совместимо с текущим schema.prisma)
+   Transfer: status String, createdAt String, createdBy String, ts BigInt
    =========================== */
 
 // создать передачу (user)
@@ -309,58 +310,57 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
     if (toObjectId === u.objectId) return res.status(400).json({ ok: false, error: 'same-object' });
 
-    const { ts, time } = nowMeta();
+    const ts = BigInt(Date.now());
+    const createdAt = new Date().toLocaleString();
 
     const result = await prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({ where: { id: itemId } });
-      if (!item) throw Object.assign(new Error('not-found'), { code: 'not-found' });
-      if (item.objectId !== u.objectId) throw Object.assign(new Error('forbidden'), { code: 'forbidden' });
-      if (item.quantity < qty) throw Object.assign(new Error('not-enough'), { code: 'not-enough' });
+      if (!item) return { err: { status: 404, error: 'not-found' } };
+      if (item.objectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
+      if (item.quantity < qty) return { err: { status: 400, error: 'not-enough' } };
 
-      // уменьшаем остаток на складе отправителя
-      const updatedItem = await tx.item.update({
+      // 1) списываем товар на складе отправителя
+      await tx.item.update({
         where: { id: item.id },
         data: { quantity: item.quantity - qty }
       });
 
-      // операция out (передача)
+      // 2) пишем операцию out (чтобы история/остатки были честными)
       await tx.operation.create({
         data: {
           type: 'out',
           qty,
           from: `Передача → ${toObjectId}`,
           ts,
-          time,
+          time: createdAt,
           objectId: u.objectId,
           itemId: item.id,
           userId: u.id
         }
       });
 
-      // создаём transfer
+      // 3) создаём Transfer (по твоей схеме)
       const transfer = await tx.transfer.create({
         data: {
           code: item.code,
           name: item.name,
           qty,
-          status: 'PENDING',
-          createdAt: new Date(),
+          status: 'pending',
+          createdAt,           // String
+          createdBy: u.id,      // String
           ts,
-          time,
-          createdById: u.id,
           fromObjectId: u.objectId,
           toObjectId
         }
       });
 
-      return { transfer, updatedItem };
+      return { transfer };
     });
+
+    if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
 
     res.json({ ok: true, transfer: result.transfer });
   } catch (e) {
-    if (e?.code === 'not-found') return res.status(404).json({ ok: false, error: 'not-found' });
-    if (e?.code === 'forbidden') return res.status(403).json({ ok: false, error: 'forbidden' });
-    if (e?.code === 'not-enough') return res.status(400).json({ ok: false, error: 'not-enough' });
     next(e);
   }
 });
@@ -371,8 +371,8 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
     const u = req.session.user;
 
     const transfers = await prisma.transfer.findMany({
-      where: { toObjectId: u.objectId, status: 'PENDING' },
-      orderBy: { createdAt: 'desc' },
+      where: { toObjectId: u.objectId, status: 'pending' },
+      orderBy: { ts: 'desc' },
       take: 200
     });
 
@@ -389,7 +389,7 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
 
     const transfers = await prisma.transfer.findMany({
       where: { fromObjectId: u.objectId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { ts: 'desc' },
       take: 200
     });
 
@@ -405,15 +405,16 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
     const u = req.session.user;
     const id = String(req.params.id);
 
-    const { ts, time } = nowMeta();
+    const ts = BigInt(Date.now());
+    const time = new Date().toLocaleString();
 
     const result = await prisma.$transaction(async (tx) => {
       const tr = await tx.transfer.findUnique({ where: { id } });
-      if (!tr) throw Object.assign(new Error('not-found'), { code: 'not-found' });
-      if (tr.toObjectId !== u.objectId) throw Object.assign(new Error('forbidden'), { code: 'forbidden' });
-      if (tr.status !== 'PENDING') throw Object.assign(new Error('bad-status'), { code: 'bad-status' });
+      if (!tr) return { err: { status: 404, error: 'not-found' } };
+      if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
+      if (tr.status !== 'pending') return { err: { status: 400, error: 'bad-status' } };
 
-      // upsert item на складе получателя
+      // upsert item у получателя по (objectId+code)
       const item = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
         update: {
@@ -428,7 +429,7 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         }
       });
 
-      // операция in на складе получателя
+      // операция in у получателя
       await tx.operation.create({
         data: {
           type: 'in',
@@ -442,44 +443,39 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         }
       });
 
+      // меняем статус
       const updated = await tx.transfer.update({
         where: { id },
-        data: {
-          status: 'ACCEPTED',
-          actedById: u.id,
-          actedAt: new Date(),
-          actedTs: ts,
-          actedTime: time
-        }
+        data: { status: 'accepted' }
       });
 
-      return updated;
+      return { transfer: updated };
     });
 
-    res.json({ ok: true, transfer: result });
+    if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
+
+    res.json({ ok: true, transfer: result.transfer });
   } catch (e) {
-    if (e?.code === 'not-found') return res.status(404).json({ ok: false, error: 'not-found' });
-    if (e?.code === 'forbidden') return res.status(403).json({ ok: false, error: 'forbidden' });
-    if (e?.code === 'bad-status') return res.status(400).json({ ok: false, error: 'bad-status' });
     next(e);
   }
 });
 
-// отклонить (user, только получатель) — возвращаем товар отправителю
+// отклонить (user, только получатель) — возвращаем отправителю
 app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
     const id = String(req.params.id);
 
-    const { ts, time } = nowMeta();
+    const ts = BigInt(Date.now());
+    const time = new Date().toLocaleString();
 
     const result = await prisma.$transaction(async (tx) => {
       const tr = await tx.transfer.findUnique({ where: { id } });
-      if (!tr) throw Object.assign(new Error('not-found'), { code: 'not-found' });
-      if (tr.toObjectId !== u.objectId) throw Object.assign(new Error('forbidden'), { code: 'forbidden' });
-      if (tr.status !== 'PENDING') throw Object.assign(new Error('bad-status'), { code: 'bad-status' });
+      if (!tr) return { err: { status: 404, error: 'not-found' } };
+      if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
+      if (tr.status !== 'pending') return { err: { status: 400, error: 'bad-status' } };
 
-      // возвращаем отправителю qty
+      // возвращаем qty отправителю
       const fromItem = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.fromObjectId, code: tr.code } },
         update: {
@@ -509,23 +505,16 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
 
       const updated = await tx.transfer.update({
         where: { id },
-        data: {
-          status: 'REJECTED',
-          actedById: u.id,
-          actedAt: new Date(),
-          actedTs: ts,
-          actedTime: time
-        }
+        data: { status: 'rejected' }
       });
 
-      return updated;
+      return { transfer: updated };
     });
 
-    res.json({ ok: true, transfer: result });
+    if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
+
+    res.json({ ok: true, transfer: result.transfer });
   } catch (e) {
-    if (e?.code === 'not-found') return res.status(404).json({ ok: false, error: 'not-found' });
-    if (e?.code === 'forbidden') return res.status(403).json({ ok: false, error: 'forbidden' });
-    if (e?.code === 'bad-status') return res.status(400).json({ ok: false, error: 'bad-status' });
     next(e);
   }
 });
