@@ -1,13 +1,11 @@
-const { PrismaClient } = require('../generated/prisma');
-const crypto = require('crypto');
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
-function hash(p) {
-  return crypto.createHash('sha256').update(String(p)).digest('hex');
-}
-
 async function main() {
+  const password = async (p) => bcrypt.hash(String(p), 10);
+
   // объекты
   const s1 = await prisma.object.upsert({
     where: { name: 'Склад 1' },
@@ -27,7 +25,7 @@ async function main() {
     update: {},
     create: {
       login: 'admin',
-      passwordHash: hash('admin'),
+      passwordHash: await password('admin'),
       role: 'admin',
       mustChangePassword: false,
     },
@@ -39,7 +37,7 @@ async function main() {
     update: { objectId: s1.id },
     create: {
       login: 'ivan',
-      passwordHash: hash('1234'),
+      passwordHash: await password('1234'),
       role: 'user',
       objectId: s1.id,
       mustChangePassword: false,
@@ -51,7 +49,7 @@ async function main() {
     update: { objectId: s2.id },
     create: {
       login: 'anna',
-      passwordHash: hash('abcd'),
+      passwordHash: await password('abcd'),
       role: 'user',
       objectId: s2.id,
       mustChangePassword: false,
