@@ -11,6 +11,30 @@ app.set('trust proxy', 1);
 
 const prisma = new PrismaClient();
 
+// ---- DEBUG (временно) ----
+app.get('/api/_debug/prisma', (req, res) => {
+  res.json({
+    ok: true,
+    hasTransferModel: !!prisma.transfer,
+    prismaKeysSample: Object.keys(prisma).filter(k => !k.startsWith('$')).slice(0, 50)
+  });
+});
+
+app.get('/api/_debug/db-transfer', async (req, res) => {
+  try {
+    // проверяем, есть ли таблица Transfer
+    await prisma.$queryRaw`SELECT 1 FROM "Transfer" LIMIT 1`;
+    res.json({ ok: true, table: 'Transfer exists' });
+  } catch (e) {
+    res.status(500).json({
+      ok: false,
+      msg: String(e?.message || e),
+      code: e?.code,
+      meta: e?.meta
+    });
+  }
+});
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
@@ -526,9 +550,20 @@ app.get('/', (req, res) => {
 
 // ---- error handler ----
 app.use((err, req, res, next) => {
-  console.error('UNHANDLED ERROR:', err);
+  console.error('UNHANDLED ERROR:', {
+    message: err?.message,
+    code: err?.code,
+    meta: err?.meta,
+    stack: err?.stack
+  });
+
   if (res.headersSent) return next(err);
-  res.status(500).json({ ok: false, error: 'server' });
+
+  res.status(500).json({
+    ok: false,
+    error: 'server',
+    code: err?.code || null
+  });
 });
 
 // ---- ловим падения процесса ----
