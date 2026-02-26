@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js",
+    "deploy": "prisma generate && prisma migrate deploy && prisma db seed",
     "dev": "nodemon server.js",
-
     "prisma:generate": "prisma generate",
-    "seed": "node prisma/seed.js",
-
-    "deploy": "npm run prisma:generate && npm run migrate:deploy && npm run seed"
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "node prisma/seed.js"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
