@@ -290,10 +290,10 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 /* ===========================
-   TRANSFERS (под твой ТЕКУЩИЙ schema.prisma: enum TransferStatus)
+   TRANSFERS (под твой schema.prisma: enum TransferStatus + createdById/actedById)
    =========================== */
 
-// create transfer (user)
+// создать передачу (user)
 app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -314,13 +314,13 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
       if (item.objectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
       if (item.quantity < qty) return { err: { status: 400, error: 'not-enough' } };
 
-      // списываем у отправителя
+      // списать у отправителя
       await tx.item.update({
         where: { id: item.id },
         data: { quantity: item.quantity - qty }
       });
 
-      // операция out
+      // операция out у отправителя
       await tx.operation.create({
         data: {
           type: 'out',
@@ -334,18 +334,18 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
         }
       });
 
-      // transfer
+      // создать transfer
       const transfer = await tx.transfer.create({
         data: {
           code: item.code,
           name: item.name,
           qty,
           status: 'PENDING',
-          ts,
-          time,
           createdById: u.id,
           fromObjectId: u.objectId,
-          toObjectId
+          toObjectId,
+          ts,
+          time
         }
       });
 
@@ -353,14 +353,13 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
     });
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
-
     res.json({ ok: true, transfer: result.transfer });
   } catch (e) {
     next(e);
   }
 });
 
-// incoming pending (user)
+// входящие pending (user)
 app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -377,14 +376,31 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
   }
 });
 
-// accept (user - receiver)
+// исходящие (user)
+app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+
+    const transfers = await prisma.transfer.findMany({
+      where: { fromObjectId: u.objectId },
+      orderBy: { createdAt: 'desc' },
+      take: 200
+    });
+
+    res.json({ ok: true, transfers });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// принять (user — получатель)
 app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
     const id = String(req.params.id);
 
-    const { ts: actedTs, time: actedTime } = nowMeta();
     const actedAt = new Date();
+    const { ts: actedTs, time: actedTime } = nowMeta();
 
     const result = await prisma.$transaction(async (tx) => {
       const tr = await tx.transfer.findUnique({ where: { id } });
@@ -395,16 +411,8 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       // upsert item у получателя
       const item = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
-        update: {
-          name: tr.name,
-          quantity: { increment: tr.qty }
-        },
-        create: {
-          objectId: tr.toObjectId,
-          code: tr.code,
-          name: tr.name,
-          quantity: tr.qty
-        }
+        update: { name: tr.name, quantity: { increment: tr.qty } },
+        create: { objectId: tr.toObjectId, code: tr.code, name: tr.name, quantity: tr.qty }
       });
 
       // операция in у получателя
@@ -436,21 +444,20 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
     });
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
-
     res.json({ ok: true, transfer: result.transfer });
   } catch (e) {
     next(e);
   }
 });
 
-// reject (user - receiver) -> return to sender
+// отклонить (user — получатель) -> вернуть отправителю
 app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
     const id = String(req.params.id);
 
-    const { ts: actedTs, time: actedTime } = nowMeta();
     const actedAt = new Date();
+    const { ts: actedTs, time: actedTime } = nowMeta();
 
     const result = await prisma.$transaction(async (tx) => {
       const tr = await tx.transfer.findUnique({ where: { id } });
@@ -458,19 +465,11 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
       if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
       if (tr.status !== 'PENDING') return { err: { status: 400, error: 'bad-status' } };
 
-      // возвращаем qty отправителю
+      // вернуть qty отправителю
       const fromItem = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.fromObjectId, code: tr.code } },
-        update: {
-          name: tr.name,
-          quantity: { increment: tr.qty }
-        },
-        create: {
-          objectId: tr.fromObjectId,
-          code: tr.code,
-          name: tr.name,
-          quantity: tr.qty
-        }
+        update: { name: tr.name, quantity: { increment: tr.qty } },
+        create: { objectId: tr.fromObjectId, code: tr.code, name: tr.name, quantity: tr.qty }
       });
 
       await tx.operation.create({
@@ -501,7 +500,6 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
     });
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
-
     res.json({ ok: true, transfer: result.transfer });
   } catch (e) {
     next(e);

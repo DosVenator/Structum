@@ -90,7 +90,7 @@ async function addOperation({ code, name, qty, from, type }) {
 
     return { ok: true, item: updated };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 
@@ -123,7 +123,7 @@ async function createTransfer({ itemId, toObjectId, qty }) {
   try {
     const r = await api('/api/transfers', {
       method: 'POST',
-      body: { itemId, toObjectId, qty }
+      body: { itemId, toObjectId, qty: Number(qty) }
     });
     return { ok: true, transfer: r.transfer };
   } catch (e) {
