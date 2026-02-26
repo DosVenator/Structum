@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Склад — учёт</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <!-- TOAST / Сообщения -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- LOGIN -->
+  <div id="loginBox" class="center-screen">
+    <div class="card auth-card">
+      <h2 class="title">🔑 Вход</h2>
+      <input id="loginInput" placeholder="Логин" autocomplete="username" />
+      <input id="passInput" type="password" placeholder="Пароль" autocomplete="current-password" />
+      <button id="loginBtn" class="btn btn-primary w100">Войти</button>
+      <div id="loginError" class="error"></div>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="appBox" class="hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">📦 Учёт материалов</div>
+        <div class="subtitle">
+          <span id="currentObject"></span>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <span id="userChip" class="chip">👤 —</span>
+
+        <button id="transferBtn" class="btn btn-primary">
+          🔄 Передачи <span id="transferBadge" class="badge hidden"></span>
+        </button>
+
+        <button id="logoutBtn" class="btn btn-secondary">🚪 Выйти</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- USER CONTROLS (скроются для admin) -->
+      <section id="userControls" class="controls card">
+        <input id="search" placeholder="🔍 Поиск..." />
+        <button id="startScan" class="btn btn-primary">📷 Камера</button>
+        <button id="stopScan" class="btn btn-secondary">⏹ Завершить</button>
+        <button id="manualAdd" class="btn btn-primary">➕ Додати вручну</button>
+      </section>
+
+      <!-- CAMERA -->
+      <section id="cameraBox" class="card hidden">
+        <div id="reader"></div>
+        <p id="status" class="muted"></p>
+      </section>
+
+      <!-- ADMIN PANEL (видно только admin) -->
+      <section id="adminPanel" class="card hidden">
+        <h3 class="section-title">🧑‍💼 Админ-панель</h3>
+        <div class="admin-tools">
+  <label class="muted">Объект для просмотра:</label>
+  <select id="adminObjectSelect"></select>
+  <button id="adminReportBtn" class="btn btn-primary">📊 Отчёт</button>
+</div>
+        <div class="admin-grid">
+          <div class="admin-block">
+            <div class="admin-block-head">
+              <h4>Объекты (склады)</h4>
+              <button id="openAddObject" class="btn btn-primary">➕ Объект</button>
+            </div>
+            <ul id="objectsList" class="simple-list"></ul>
+          </div>
+
+          <div class="admin-block">
+            <div class="admin-block-head">
+              <h4>Пользователи</h4>
+              <button id="openAddUser" class="btn btn-primary">➕ Пользователь</button>
+            </div>
+            <ul id="usersList" class="simple-list"></ul>
+          </div>
+        </div>
+
+        <p class="muted">
+          Администратор видит все остатки и историю, но не выполняет операции (камера/приход/списание/передачи отключены).
+        </p>
+      </section>
+
+      <!-- LIST -->
+      <section class="card">
+        <h3 class="section-title">📋 Список</h3>
+        <ul id="list"></ul>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL: Приход (ручной/после скана) -->
+  <div id="intakeModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>➕ Приход</h3>
+
+      <label>Штрихкод</label>
+      <input id="mCode" placeholder="Например: 520229..." />
+      <div class="hint">Можно вставить цифры. Пробелы будут удалены.</div>
+
+      <label>Название</label>
+      <input id="mName" placeholder="Например: Перчатки" />
+
+      <label>Количество</label>
+      <input id="mQty" type="number" inputmode="numeric" placeholder="Например: 2" />
+
+      <label>От кого</label>
+      <input id="mFrom" placeholder="Поставщик / магазин" />
+
+      <div id="mError" class="error"></div>
+
+      <div class="modal-actions">
+        <button id="mSave" class="btn btn-primary">Сохранить</button>
+        <button id="mCancel" class="btn btn-secondary">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: После сохранения спросить "продолжить сканирование?" -->
+  <div id="continueModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>✅ Сохранено</h3>
+      <p class="muted">Продолжить сканирование?</p>
+      <div class="modal-actions">
+        <button id="contYes" class="btn btn-primary">📷 Да</button>
+        <button id="contNo" class="btn btn-secondary">Нет</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: История -->
+  <div id="historyModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="hTitle">📜 История</h3>
+      <div id="hBody" class="history-body"></div>
+      <div class="modal-actions">
+        <button id="hClose" class="btn btn-secondary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Списание -->
+  <div id="writeoffModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>➖ Списание</h3>
+      <p id="wTitle" class="muted"></p>
+
+      <label>Количество</label>
+      <input id="wQty" type="number" inputmode="numeric" placeholder="Например: 1" />
+
+      <label>Кому / куда</label>
+      <input id="wTo" placeholder="Например: Бригада 2 / участок" />
+
+      <div id="wError" class="error"></div>
+
+      <div class="modal-actions">
+        <button id="wSave" class="btn btn-primary">Списать</button>
+        <button id="wCancel" class="btn btn-secondary">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRANSFER MODAL -->
+  <div id="transferModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>📤 Передать товар</h3>
+      <p id="transferItemName" class="muted"></p>
+
+      <label>Куда</label>
+      <select id="transferTo"></select>
+
+      <label>Количество</label>
+      <input id="transferQty" type="number" inputmode="numeric" placeholder="Количество" />
+
+      <div id="transferError" class="error"></div>
+
+      <div class="modal-actions">
+        <button id="confirmTransfer" class="btn btn-primary">Отправить</button>
+        <button id="cancelTransfer" class="btn btn-secondary">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- INCOMING TRANSFERS MODAL -->
+  <div id="incomingModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>📥 Входящие передачи</h3>
+      <ul id="incomingList" class="simple-list"></ul>
+      <div class="modal-actions">
+        <button id="incomingClose" class="btn btn-secondary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Смена пароля -->
+  <div id="pwdModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>🔒 Смена пароля</h3>
+      <p class="muted">Это обязательный шаг при первом входе.</p>
+
+      <label>Новый пароль</label>
+      <input id="p1" type="password" placeholder="Новый пароль" />
+
+      <label>Повторите пароль</label>
+      <input id="p2" type="password" placeholder="Повторите пароль" />
+
+      <div id="pError" class="error"></div>
+
+      <div class="modal-actions">
+        <button id="pSave" class="btn btn-primary">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN: добавить объект -->
+  <div id="addObjectModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>➕ Новый объект</h3>
+      <label>Название</label>
+      <input id="objName" placeholder="Например: Склад 3" />
+      <div id="objError" class="error"></div>
+      <div class="modal-actions">
+        <button id="objSave" class="btn btn-primary">Создать</button>
+        <button id="objCancel" class="btn btn-secondary">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN: добавить пользователя -->
+  <div id="addUserModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>➕ Новый пользователь</h3>
+
+      <label>Логин</label>
+      <input id="uLogin" placeholder="Например: sklad3" />
+
+      <label>Объект</label>
+      <select id="uObject"></select>
+
+      <label>Временный пароль</label>
+      <input id="uPass" placeholder="Сгенерируется автоматически, можно изменить" />
+
+      <div id="uError" class="error"></div>
+
+      <div class="modal-actions">
+        <button id="uSave" class="btn btn-primary">Создать</button>
+        <button id="uCancel" class="btn btn-secondary">Отмена</button>
+      </div>
+
+      <p class="muted" style="margin-top:10px">
+        После первого входа пользователь будет обязан сменить пароль.
+      </p>
+    </div>
+  </div>
+<!-- MODAL: Confirm -->
+<div id="confirmModal" class="modal hidden">
+  <div class="modal-content">
+    <h3 id="cTitle">Подтверждение</h3>
+    <p id="cText" class="muted"></p>
+
+    <div class="modal-actions">
+      <button id="cYes" class="btn btn-danger">Удалить</button>
+      <button id="cNo" class="btn btn-secondary">Отмена</button>
+    </div>
+  </div>
+</div>
+<!-- ADMIN: REPORT MODAL -->
+<div id="reportModal" class="modal hidden">
+  <div class="modal-content modal-wide">
+    <div class="modal-head">
+      <h3>📊 Отчёт</h3>
+      <button id="rClose" class="btn btn-secondary">✕</button>
+    </div>
+
+    <div class="report-form">
+      <div class="field">
+        <label>Объект</label>
+        <select id="rObject"></select>
+      </div>
+
+      <div class="field">
+        <label>С даты</label>
+        <input id="rFrom" type="date" />
+      </div>
+
+      <div class="field">
+        <label>По дату</label>
+        <input id="rTo" type="date" />
+      </div>
+
+      <div class="field">
+        <label>Режим</label>
+        <div class="radio-row">
+          <label><input id="rModeAll" type="radio" name="rMode" checked /> По всем товарам</label>
+          <label><input id="rModeOne" type="radio" name="rMode" /> По одному товару</label>
+        </div>
+      </div>
+
+      <div class="field hidden" id="rItemWrap">
+        <label>Товар</label>
+        <select id="rItem"></select>
+      </div>
+
+      <div class="field">
+        <button id="rBuild" class="btn btn-primary w100">Сформировать</button>
+        <div id="rError" class="error"></div>
+      </div>
+    </div>
+
+    <div id="rTableWrap" class="report-output"></div>
+  </div>
+</div>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="/js/store.js"></script>
+  <script src="/js/scanner.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
