@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Object {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users     User[]
+  items     Item[]
+}
+
+model User {
+  id                String   @id @default(cuid())
+  login             String   @unique
+  passwordHash      String
+  role              String   @default("user") // "admin" | "user"
+  mustChangePassword Boolean @default(false)
+  createdAt         DateTime @default(now())
+
+  objectId String?
+  object   Object?  @relation(fields: [objectId], references: [id])
+
+  operations Operation[]
+}
+
+model Item {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  objectId  String
+  object    Object   @relation(fields: [objectId], references: [id])
+
+  operations Operation[]
+
+  @@unique([objectId, code]) // на одном складе один штрихкод = одна позиция
+}
+
+model Operation {
+  id        String   @id @default(cuid())
+  type      String   // "in" | "out"
+  qty       Int
+  from      String
+  ts        BigInt
+  time      String
+  createdAt DateTime @default(now())
+
+  objectId String
+  object   Object   @relation(fields: [objectId], references: [id])
+
+  itemId   String
+  item     Item     @relation(fields: [itemId], references: [id])
+
+  userId   String?
+  user     User?    @relation(fields: [userId], references: [id])
+
+  @@index([objectId, ts])
+  @@index([itemId, ts])
+}
+
+model Transfer {
+  id           String   @id @default(cuid())
+  code         String
+  name         String
+  qty          Int
+  status       String   @default("pending") // pending | accepted | rejected
+  createdAt    String
+  createdBy    String
+  ts           BigInt
+
+  fromObjectId String
+  toObjectId   String
+
+  @@index([toObjectId, status])
+}
