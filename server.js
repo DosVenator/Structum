@@ -9,6 +9,11 @@ const { PrismaClient } = require('@prisma/client');
 const app = express();
 app.set('trust proxy', 1);
 
+// ✅ чтобы res.json умел BigInt (Prisma возвращает BigInt для ts)
+app.set('json replacer', (key, value) =>
+  typeof value === 'bigint' ? value.toString() : value
+);
+
 const prisma = new PrismaClient();
 
 const pool = new Pool({
