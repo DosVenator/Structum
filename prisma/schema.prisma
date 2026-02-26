@@ -15,6 +15,7 @@ model Object {
 
   users     User[]
   items     Item[]
+  operations Operation[]
 }
 
 model User {
