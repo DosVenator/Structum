@@ -54,7 +54,7 @@ async function openHistory(itemId){
   historyModal.classList.remove('hidden');
 
   try {
-    const ops = await store.getHistory(itemId); // <-- API
+    const ops = await store.getHistory(itemId);
 
     hBody.innerHTML = ops.length
       ? ops.map(o => {
@@ -117,7 +117,7 @@ wSave.onclick = async () => {
       type: 'out'
     });
 
-    if (!res.ok) { wError.textContent = 'Ошибка списания'; return; }
+    if (!res.ok) { wError.textContent = `Ошибка списания: ${res.error || 'server'}`; return; }
 
     writeoffModal.classList.add('hidden');
     await renderList(searchInput.value);
@@ -128,27 +128,199 @@ wSave.onclick = async () => {
 };
 
 // ================================
-// Transfers UI (пока выключено)
+// Transfers UI (ВКЛЮЧЕНО)
 // ================================
 const transferModal = document.getElementById('transferModal');
 const incomingModal = document.getElementById('incomingModal');
 const incomingClose = document.getElementById('incomingClose');
 const cancelTransfer  = document.getElementById('cancelTransfer');
 
-if (cancelTransfer) cancelTransfer.onclick = () => transferModal?.classList.add('hidden');
-if (incomingClose) incomingClose.onclick = () => incomingModal?.classList.add('hidden');
+const transferTo = document.getElementById('transferTo');
+const transferQty = document.getElementById('transferQty');
+const transferError = document.getElementById('transferError');
+const confirmTransfer = document.getElementById('confirmTransfer');
+const transferItemName = document.getElementById('transferItemName');
+const incomingList = document.getElementById('incomingList');
 
-function updateTransferBadge(){
-  // transfers пока не реализованы в API-store
-  if (transferBadge) transferBadge.classList.add('hidden');
+let transferItemId = null;
+
+if (cancelTransfer) cancelTransfer.onclick = () => {
+  transferModal?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+};
+if (incomingClose) incomingClose.onclick = () => {
+  incomingModal?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+};
+
+async function updateTransferBadge(){
+  const u = await store.currentUserObj();
+  if (!u || u.role !== 'user') {
+    if (transferBadge) transferBadge.classList.add('hidden');
+    return;
+  }
+
+  // если методов нет (вдруг store.js ещё не обновили) — просто прячем
+  if (!store.getIncomingTransfers) {
+    if (transferBadge) transferBadge.classList.add('hidden');
+    return;
+  }
+
+  const r = await store.getIncomingTransfers();
+  const n = r.ok ? (r.transfers?.length || 0) : 0;
+
+  if (!transferBadge) return;
+  if (n > 0) {
+    transferBadge.textContent = String(n);
+    transferBadge.classList.remove('hidden');
+  } else {
+    transferBadge.classList.add('hidden');
+  }
 }
 
-async function openTransferModal(){
-  soon('📤 Передачи — скоро');
+async function openTransferModal(itemId){
+  const u = await store.currentUserObj();
+  if (!u || u.role !== 'user') return;
+
+  if (!store.createTransfer) {
+    appToast('Передачи ещё не подключены в store.js');
+    return;
+  }
+
+  transferItemId = itemId;
+  const item = store.getItem(itemId);
+  if (!item) return;
+
+  transferError.textContent = '';
+  transferQty.value = '';
+  transferItemName.textContent = `Товар: ${item.name} (доступно: ${item.quantity})`;
+
+  const objs = await store.getObjects();
+
+  const options = objs
+    .filter(o => o.id !== u.objectId)
+    .map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`)
+    .join('');
+
+  transferTo.innerHTML = options || `<option value="">Нет доступных объектов</option>`;
+
+  document.body.classList.add('modal-open');
+  transferModal.classList.remove('hidden');
+}
+
+async function closeTransferModal(){
+  transferModal.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+  transferItemId = null;
+}
+
+if (confirmTransfer) {
+  confirmTransfer.onclick = async () => {
+    transferError.textContent = '';
+
+    const u = await store.currentUserObj();
+    if (!u || u.role !== 'user') { transferError.textContent = 'Нет доступа'; return; }
+
+    const item = store.getItem(transferItemId);
+    if (!item) { transferError.textContent = 'Товар не найден'; return; }
+
+    const toObjectId = transferTo.value;
+    const qty = Number(transferQty.value);
+
+    if (!toObjectId) { transferError.textContent = 'Выберите объект'; return; }
+    if (!Number.isFinite(qty) || qty <= 0) { transferError.textContent = 'Количество должно быть > 0'; return; }
+    if (qty > item.quantity) { transferError.textContent = 'Недостаточно остатка'; return; }
+
+    confirmTransfer.disabled = true;
+    try {
+      const r = await store.createTransfer({ itemId: item.id, toObjectId, qty });
+      if (!r.ok) {
+        const msg =
+          r.error === 'not-enough' ? 'Недостаточно остатка' :
+          r.error === 'same-object' ? 'Нельзя передать на тот же объект' :
+          `Ошибка: ${r.status || ''} ${r.error || 'server'}`;
+        transferError.textContent = msg;
+        return;
+      }
+
+      await closeTransferModal();
+      await renderList(searchInput.value);
+      await updateTransferBadge();
+      appToast('📤 Передача создана');
+    } finally {
+      confirmTransfer.disabled = false;
+    }
+  };
 }
 
 async function openIncomingTransfers(){
-  soon('📥 Входящие передачи — скоро');
+  const u = await store.currentUserObj();
+  if (!u || u.role !== 'user') return;
+
+  if (!store.getIncomingTransfers) {
+    appToast('Передачи ещё не подключены в store.js');
+    return;
+  }
+
+  incomingList.innerHTML = `<li><span class="muted">Загрузка…</span></li>`;
+  document.body.classList.add('modal-open');
+  incomingModal.classList.remove('hidden');
+
+  const r = await store.getIncomingTransfers();
+  if (!r.ok) {
+    incomingList.innerHTML = `<li><span class="muted">Ошибка загрузки: ${r.status || ''} ${r.error || ''}</span></li>`;
+    return;
+  }
+
+  const list = r.transfers || [];
+  if (!list.length) {
+    incomingList.innerHTML = `<li><span class="muted">Нет входящих передач</span></li>`;
+    return;
+  }
+
+  incomingList.innerHTML = '';
+  list.forEach(tr => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div><b>${escapeHtml(tr.name)}</b> <span class="muted">(${escapeHtml(tr.code)})</span></div>
+        <div class="muted">Кол-во: <b>${tr.qty}</b></div>
+        <div class="muted" style="font-size:12px">${escapeHtml(tr.time || '')}</div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn btn-primary" data-acc="${tr.id}">✅ Принять</button>
+          <button class="btn btn-danger" data-rej="${tr.id}">❌ Отклонить</button>
+        </div>
+      </div>
+    `;
+    incomingList.appendChild(li);
+  });
+
+  incomingList.querySelectorAll('[data-acc]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-acc');
+      btn.disabled = true;
+      const rr = await store.acceptTransfer(id);
+      if (!rr.ok) appToast(`Ошибка: ${rr.status || ''} ${rr.error || ''}`);
+
+      // обновим список входящих и экран
+      await openIncomingTransfers();
+      await renderList(searchInput.value);
+      await updateTransferBadge();
+    };
+  });
+
+  incomingList.querySelectorAll('[data-rej]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-rej');
+      btn.disabled = true;
+      const rr = await store.rejectTransfer(id);
+      if (!rr.ok) appToast(`Ошибка: ${rr.status || ''} ${rr.error || ''}`);
+
+      await openIncomingTransfers();
+      await renderList(searchInput.value);
+      await updateTransferBadge();
+    };
+  });
 }
 
 if (transferBtn) {
@@ -251,12 +423,11 @@ async function initAdminObjectSelect(){
   const u = await store.currentUserObj();
   if (!u || u.role !== 'admin') return;
 
-  // objects должны быть загружены
   const objs = await store.getObjects();
 
   adminObjectSelect.innerHTML =
     `<option value="all">Все объекты</option>` +
-    objs.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+    objs.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
 
   if (adminSelectedObjectId !== 'all' && !objs.some(o => o.id === adminSelectedObjectId)) {
     adminSelectedObjectId = 'all';
@@ -290,6 +461,14 @@ const rBuild = document.getElementById('rBuild');
 const rError = document.getElementById('rError');
 const rTableWrap = document.getElementById('rTableWrap');
 
+// ✅ ВАЖНО: оставляем ОДИН обработчик (без дублей onchange ниже)
+document.querySelectorAll('input[name="rMode"]').forEach(el => {
+  el.addEventListener('change', () => {
+    if (rModeOne.checked) rItemWrap.classList.remove('hidden');
+    else rItemWrap.classList.add('hidden');
+  });
+});
+
 function ymdToday(){
   const d = new Date();
   const y = d.getFullYear();
@@ -314,7 +493,7 @@ async function openReportModal(){
   const objs = await store.getObjects();
   rObject.innerHTML =
     `<option value="all">Все объекты</option>` +
-    objs.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+    objs.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
 
   rObject.value = adminSelectedObjectId || 'all';
   rFrom.value = ymdToday();
@@ -348,19 +527,10 @@ function escapeHtml(s) {
 async function fillReportItemSelect(){
   const objectId = rObject.value || 'all';
 
-  // гарантируем свежие items
-  await store.getItems({ objectId });
+  const items = await store.getItems({ objectId });
 
-  let items = store.getItems({ objectId }); // <- у API-store getItems async, но кеш уже обновлён выше
-  // ВАЖНО: здесь items не используются как промис — поэтому ниже берём из кеша:
-  items = (Array.isArray(items) ? items : (store._items || [])); // страховка, если кто-то поменяет store
-
-  // если store.getItems() возвращает промис в твоей реализации — просто используй кеш:
-  if (!Array.isArray(items)) items = [];
-
-  // уникально по code
   const map = new Map();
-  for (const it of items) {
+  for (const it of (items || [])) {
     if (!it?.code) continue;
     if (!map.has(it.code)) map.set(it.code, it.name || it.code);
   }
@@ -375,8 +545,10 @@ async function fillReportItemSelect(){
 }
 
 if (rObject) rObject.onchange = async () => { await fillReportItemSelect(); };
-if (rModeAll) rModeAll.onchange = () => { if (rModeAll.checked) rItemWrap.classList.add('hidden'); };
-if (rModeOne) rModeOne.onchange = () => { if (rModeOne.checked) rItemWrap.classList.remove('hidden'); };
+
+// ❌ УБРАНО: старые rModeAll.onchange / rModeOne.onchange, потому что они дублируют обработчик выше
+// if (rModeAll) rModeAll.onchange = ...
+// if (rModeOne) rModeOne.onchange = ...
 
 if (rClose) rClose.onclick = closeReportModal;
 if (reportModal) {
@@ -402,7 +574,7 @@ if (rBuild) {
 
     const itemCode = rModeOne.checked ? (rItem.value || '') : '';
     const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode });
-    if (!res.ok) { rError.textContent = 'Ошибка формирования отчёта'; return; }
+    if (!res.ok) { rError.textContent = `Ошибка формирования отчёта: ${res.error || 'server'}`; return; }
 
     const rows = res.rows || [];
 
@@ -413,8 +585,8 @@ if (rBuild) {
 
     const head = `
       <div class="report-head">
-        <div><b>Отчёт:</b> ${objLabel}</div>
-        <div class="muted">Период: ${fromYmd} — ${toYmd}</div>
+        <div><b>Отчёт:</b> ${escapeHtml(objLabel)}</div>
+        <div class="muted">Период: ${escapeHtml(fromYmd)} — ${escapeHtml(toYmd)}</div>
         <div class="muted">Записей: ${rows.length}</div>
       </div>
     `;
@@ -470,7 +642,6 @@ if (adminReportBtn) adminReportBtn.onclick = openReportModal;
 loginBtn.onclick = async () => {
   const res = await store.loginUser(loginInput.value.trim(), passInput.value.trim());
   if (!res.ok) {
-    // ✅ теперь видно реальную причину: 401 invalid или 500 server/session/db
     loginError.textContent = `❌ Ошибка входа: ${res.status || ''} ${res.error || ''}`.trim();
     setTimeout(() => (loginError.textContent=''), 4000);
     return;
@@ -526,26 +697,16 @@ async function afterLogin(){
     if (transferBtn) transferBtn.classList.remove('hidden');
   }
 
-  updateTransferBadge();
+  await updateTransferBadge();
   await renderList(searchInput.value);
   renderAdmin();
 }
 
 function renderAdmin(){
-  // В API-версии users пока не подтягиваем — просто покажем объекты
-  const objs = (store.getObjects && store.getObjects.length === 0) ? [] : (store.getObjects ? null : null);
-
-  // безопасно: берем из кеша store.getObjectById по списку объектов — но список объектов мы уже загрузили
-  const list = [];
-  // попробуем получить objects косвенно:
-  // если store.getObjects() асинхронный - тут не вызываем. Мы уже вызывали getObjects() в afterLogin.
-  // Поэтому просто выводим по селектору объекта:
   objectsList.innerHTML = '';
-  // адекватно: возьмём ids из селекта админа если он есть
-  // но проще — не рисовать users/objects, чтобы не ломать
   if (!objectsList || !usersList) return;
 
-  // попробуем заполнить по dom-селекту adminObjectSelect:
+  const list = [];
   if (adminObjectSelect && adminObjectSelect.options.length) {
     for (const opt of adminObjectSelect.options) {
       if (!opt.value || opt.value === 'all') continue;
@@ -555,7 +716,7 @@ function renderAdmin(){
 
   list.forEach(o => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>📦 ${o.name}</span><span class="muted">id: ${String(o.id).slice(0,6)}…</span>`;
+    li.innerHTML = `<span>📦 ${escapeHtml(o.name)}</span><span class="muted">id: ${String(o.id).slice(0,6)}…</span>`;
     objectsList.appendChild(li);
   });
 
@@ -571,15 +732,7 @@ async function renderList(filter=''){
 
   listEl.innerHTML = `<li><span class="muted">Загрузка…</span></li>`;
 
-  // обновим items из API
   const objectIdForAdmin = (u.role === 'admin') ? adminSelectedObjectId : 'all';
-  await store.getItems({ objectId: objectIdForAdmin });
-
-  // теперь берем из кеша через store.getItems() в твоей старой логике нельзя,
-  // поэтому берем items из store.getItems({}) не вызывая (она async).
-  // используем store.getItem + перебор кеша невозможно, поэтому делаем так:
-  // в API-store я держал _items внутри, но наружу не отдавал.
-  // Чтобы не ломать — просто второй раз вызовем getItems и дождёмся массива:
   const itemsFromApi = await store.getItems({ objectId: objectIdForAdmin });
   let items = Array.isArray(itemsFromApi) ? itemsFromApi : [];
 
@@ -599,7 +752,7 @@ async function renderList(filter=''){
 
     const objName = store.getObjectById(item.objectId)?.name || '';
     const objLine = (u.role === 'admin')
-      ? `<div class="muted" style="font-size:13px">📍 ${objName}</div>`
+      ? `<div class="muted" style="font-size:13px">📍 ${escapeHtml(objName)}</div>`
       : '';
 
     const actions = (u.role === 'user')
@@ -620,7 +773,7 @@ async function renderList(filter=''){
 
     li.innerHTML = `
       <div class="item-main">
-        <strong>${item.name}</strong>
+        <strong>${escapeHtml(item.name)}</strong>
         ${objLine}
         <div class="muted">Всего: <b>${item.quantity}</b></div>
       </div>
@@ -686,7 +839,6 @@ searchInput.addEventListener('input', async (e) => {
 
     await afterLogin();
   } catch (e) {
-    // если /api/me вернул 401 или сеть — остаёмся на логине
     console.log('boot: no session');
   }
 })();

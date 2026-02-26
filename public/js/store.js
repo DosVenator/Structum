@@ -115,15 +115,63 @@ async function adminGetReport({ objectId, fromTs, toTs, itemCode }) {
   }
 }
 
+/* ===========================
+   TRANSFERS
+   =========================== */
+
+async function createTransfer({ itemId, toObjectId, qty }) {
+  try {
+    const r = await api('/api/transfers', {
+      method: 'POST',
+      body: { itemId, toObjectId, qty }
+    });
+    return { ok: true, transfer: r.transfer };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+  }
+}
+
+async function getIncomingTransfers() {
+  try {
+    const r = await api('/api/transfers/incoming');
+    return { ok: true, transfers: r.transfers || [] };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+  }
+}
+
+async function getOutgoingTransfers() {
+  try {
+    const r = await api('/api/transfers/outgoing');
+    return { ok: true, transfers: r.transfers || [] };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+  }
+}
+
+async function acceptTransfer(id) {
+  try {
+    const r = await api(`/api/transfers/${encodeURIComponent(id)}/accept`, { method: 'POST' });
+    return { ok: true, transfer: r.transfer };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+  }
+}
+
+async function rejectTransfer(id) {
+  try {
+    const r = await api(`/api/transfers/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+    return { ok: true, transfer: r.transfer };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+  }
+}
+
 // stubs (пока не реализовано)
 function getUsers() { return []; }
 async function adminCreateObject() { return { ok: false, error: 'not-implemented' }; }
 async function adminCreateUser() { return { ok: false, error: 'not-implemented' }; }
 async function changePassword() { return false; }
-function getIncomingTransfers() { return []; }
-async function createTransfer() { return { ok: false, error: 'not-implemented' }; }
-async function acceptTransfer() { return { ok: false, error: 'not-implemented' }; }
-async function rejectTransfer() { return { ok: false, error: 'not-implemented' }; }
 async function deleteItem() { return false; }
 
 window.store = {
@@ -143,13 +191,17 @@ window.store = {
 
   adminGetReport,
 
+  // transfers
+  createTransfer,
+  getIncomingTransfers,
+  getOutgoingTransfers,
+  acceptTransfer,
+  rejectTransfer,
+
+  // stubs
   getUsers,
   adminCreateObject,
   adminCreateUser,
   changePassword,
-  getIncomingTransfers,
-  createTransfer,
-  acceptTransfer,
-  rejectTransfer,
   deleteItem
 };

@@ -19,7 +19,7 @@ const pool = new Pool({
 const SESSION_SECRET =
   process.env.SESSION_SECRET || process.env.JWT_SECRET || 'dev-secret-change-me';
 
-// ---- request logger (видно, что именно отдаёт 500) ----
+// ---- request logger ----
 app.use((req, res, next) => {
   const t0 = Date.now();
   res.on('finish', () => {
@@ -28,17 +28,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// ---- STATIC FIRST (без сессий и без БД) ----
+// ---- STATIC FIRST ----
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---- Healthcheck (без БД) ----
+// ---- Healthcheck ----
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
-// ---- parsers только для API ----
+// ---- parsers only for API ----
 app.use('/api', express.json());
 app.use('/api', express.urlencoded({ extended: true }));
 
-// ---- sessions ТОЛЬКО для API ----
+// ---- sessions only for API ----
 app.use(
   '/api',
   session({
@@ -71,6 +71,16 @@ function requireAdmin(req, res, next) {
     return res.status(403).json({ ok: false, error: 'forbidden' });
   next();
 }
+function requireUser(req, res, next) {
+  if (req.session?.user?.role !== 'user')
+    return res.status(403).json({ ok: false, error: 'forbidden' });
+  next();
+}
+function nowMeta() {
+  const ts = BigInt(Date.now());
+  const time = new Date().toLocaleString();
+  return { ts, time };
+}
 
 // --- AUTH ---
 app.post('/api/login', async (req, res, next) => {
@@ -86,7 +96,6 @@ app.post('/api/login', async (req, res, next) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ ok: false, error: 'invalid' });
 
-    // ВАЖНО: регенерируем сессию при логине (убирает странные состояния)
     req.session.regenerate((err) => {
       if (err) return res.status(500).json({ ok: false, error: 'session' });
 
@@ -110,7 +119,6 @@ app.post('/api/login', async (req, res, next) => {
 
 app.post('/api/logout', (req, res) => {
   req.session?.destroy(() => {
-    // очищаем cookie с теми же опциями
     res.clearCookie('inv.sid', {
       path: '/',
       sameSite: 'lax',
@@ -190,10 +198,9 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
 });
 
 // --- OPERATIONS (приход/расход) ---
-app.post('/api/ops', requireAuth, async (req, res, next) => {
+app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
-    if (u.role !== 'user') return res.status(403).json({ ok: false, error: 'forbidden' });
 
     const code = String(req.body.code || '').replace(/\s+/g, '');
     const name = String(req.body.name || '').trim();
@@ -205,8 +212,7 @@ app.post('/api/ops', requireAuth, async (req, res, next) => {
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
     if (type !== 'in' && type !== 'out') return res.status(400).json({ ok: false, error: 'type' });
 
-    const ts = BigInt(Date.now());
-    const time = new Date().toLocaleString();
+    const { ts, time } = nowMeta();
 
     const item = await prisma.item.upsert({
       where: { objectId_code: { objectId: u.objectId, code } },
@@ -286,12 +292,250 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
   }
 });
 
-// Главная (на случай, если static не сработал)
+/* ===========================
+   TRANSFERS (ПЕРЕДАЧИ)
+   =========================== */
+
+// создать передачу (user)
+app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+
+    const toObjectId = String(req.body.toObjectId || '').trim();
+    const itemId = String(req.body.itemId || '').trim();
+    const qty = Number(req.body.qty);
+
+    if (!toObjectId || !itemId) return res.status(400).json({ ok: false, error: 'bad-request' });
+    if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
+    if (toObjectId === u.objectId) return res.status(400).json({ ok: false, error: 'same-object' });
+
+    const { ts, time } = nowMeta();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const item = await tx.item.findUnique({ where: { id: itemId } });
+      if (!item) throw Object.assign(new Error('not-found'), { code: 'not-found' });
+      if (item.objectId !== u.objectId) throw Object.assign(new Error('forbidden'), { code: 'forbidden' });
+      if (item.quantity < qty) throw Object.assign(new Error('not-enough'), { code: 'not-enough' });
+
+      // уменьшаем остаток на складе отправителя
+      const updatedItem = await tx.item.update({
+        where: { id: item.id },
+        data: { quantity: item.quantity - qty }
+      });
+
+      // операция out (передача)
+      await tx.operation.create({
+        data: {
+          type: 'out',
+          qty,
+          from: `Передача → ${toObjectId}`,
+          ts,
+          time,
+          objectId: u.objectId,
+          itemId: item.id,
+          userId: u.id
+        }
+      });
+
+      // создаём transfer
+      const transfer = await tx.transfer.create({
+        data: {
+          code: item.code,
+          name: item.name,
+          qty,
+          status: 'PENDING',
+          createdAt: new Date(),
+          ts,
+          time,
+          createdById: u.id,
+          fromObjectId: u.objectId,
+          toObjectId
+        }
+      });
+
+      return { transfer, updatedItem };
+    });
+
+    res.json({ ok: true, transfer: result.transfer });
+  } catch (e) {
+    if (e?.code === 'not-found') return res.status(404).json({ ok: false, error: 'not-found' });
+    if (e?.code === 'forbidden') return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (e?.code === 'not-enough') return res.status(400).json({ ok: false, error: 'not-enough' });
+    next(e);
+  }
+});
+
+// входящие pending (user)
+app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+
+    const transfers = await prisma.transfer.findMany({
+      where: { toObjectId: u.objectId, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      take: 200
+    });
+
+    res.json({ ok: true, transfers });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// исходящие (user)
+app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+
+    const transfers = await prisma.transfer.findMany({
+      where: { fromObjectId: u.objectId },
+      orderBy: { createdAt: 'desc' },
+      take: 200
+    });
+
+    res.json({ ok: true, transfers });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// принять (user, только получатель)
+app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const id = String(req.params.id);
+
+    const { ts, time } = nowMeta();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const tr = await tx.transfer.findUnique({ where: { id } });
+      if (!tr) throw Object.assign(new Error('not-found'), { code: 'not-found' });
+      if (tr.toObjectId !== u.objectId) throw Object.assign(new Error('forbidden'), { code: 'forbidden' });
+      if (tr.status !== 'PENDING') throw Object.assign(new Error('bad-status'), { code: 'bad-status' });
+
+      // upsert item на складе получателя
+      const item = await tx.item.upsert({
+        where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
+        update: {
+          name: tr.name,
+          quantity: { increment: tr.qty }
+        },
+        create: {
+          objectId: tr.toObjectId,
+          code: tr.code,
+          name: tr.name,
+          quantity: tr.qty
+        }
+      });
+
+      // операция in на складе получателя
+      await tx.operation.create({
+        data: {
+          type: 'in',
+          qty: tr.qty,
+          from: `Передача ← ${tr.fromObjectId}`,
+          ts,
+          time,
+          objectId: tr.toObjectId,
+          itemId: item.id,
+          userId: u.id
+        }
+      });
+
+      const updated = await tx.transfer.update({
+        where: { id },
+        data: {
+          status: 'ACCEPTED',
+          actedById: u.id,
+          actedAt: new Date(),
+          actedTs: ts,
+          actedTime: time
+        }
+      });
+
+      return updated;
+    });
+
+    res.json({ ok: true, transfer: result });
+  } catch (e) {
+    if (e?.code === 'not-found') return res.status(404).json({ ok: false, error: 'not-found' });
+    if (e?.code === 'forbidden') return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (e?.code === 'bad-status') return res.status(400).json({ ok: false, error: 'bad-status' });
+    next(e);
+  }
+});
+
+// отклонить (user, только получатель) — возвращаем товар отправителю
+app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const id = String(req.params.id);
+
+    const { ts, time } = nowMeta();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const tr = await tx.transfer.findUnique({ where: { id } });
+      if (!tr) throw Object.assign(new Error('not-found'), { code: 'not-found' });
+      if (tr.toObjectId !== u.objectId) throw Object.assign(new Error('forbidden'), { code: 'forbidden' });
+      if (tr.status !== 'PENDING') throw Object.assign(new Error('bad-status'), { code: 'bad-status' });
+
+      // возвращаем отправителю qty
+      const fromItem = await tx.item.upsert({
+        where: { objectId_code: { objectId: tr.fromObjectId, code: tr.code } },
+        update: {
+          name: tr.name,
+          quantity: { increment: tr.qty }
+        },
+        create: {
+          objectId: tr.fromObjectId,
+          code: tr.code,
+          name: tr.name,
+          quantity: tr.qty
+        }
+      });
+
+      await tx.operation.create({
+        data: {
+          type: 'in',
+          qty: tr.qty,
+          from: `Возврат (передача отклонена) ← ${tr.toObjectId}`,
+          ts,
+          time,
+          objectId: tr.fromObjectId,
+          itemId: fromItem.id,
+          userId: u.id
+        }
+      });
+
+      const updated = await tx.transfer.update({
+        where: { id },
+        data: {
+          status: 'REJECTED',
+          actedById: u.id,
+          actedAt: new Date(),
+          actedTs: ts,
+          actedTime: time
+        }
+      });
+
+      return updated;
+    });
+
+    res.json({ ok: true, transfer: result });
+  } catch (e) {
+    if (e?.code === 'not-found') return res.status(404).json({ ok: false, error: 'not-found' });
+    if (e?.code === 'forbidden') return res.status(403).json({ ok: false, error: 'forbidden' });
+    if (e?.code === 'bad-status') return res.status(400).json({ ok: false, error: 'bad-status' });
+    next(e);
+  }
+});
+
+// Главная (fallback)
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ---- глобальный error handler ----
+// ---- error handler ----
 app.use((err, req, res, next) => {
   console.error('UNHANDLED ERROR:', err);
   if (res.headersSent) return next(err);
@@ -309,6 +553,5 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-// PORT
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ Server started on port ${PORT}`));

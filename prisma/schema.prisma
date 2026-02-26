@@ -8,28 +8,36 @@ datasource db {
 }
 
 model Object {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id         String      @id @default(cuid())
+  name       String      @unique
+  active     Boolean     @default(true)
+  createdAt  DateTime    @default(now())
 
-  users     User[]
-  items     Item[]
+  users      User[]
+  items      Item[]
   operations Operation[]
+
+  // transfers
+  transfersFrom Transfer[] @relation("TransferFrom")
+  transfersTo   Transfer[] @relation("TransferTo")
 }
 
 model User {
-  id                String   @id @default(cuid())
-  login             String   @unique
-  passwordHash      String
-  role              String   @default("user") // "admin" | "user"
-  mustChangePassword Boolean @default(false)
-  createdAt         DateTime @default(now())
+  id                 String     @id @default(cuid())
+  login              String     @unique
+  passwordHash       String
+  role               String     @default("user") // "admin" | "user"
+  mustChangePassword Boolean    @default(false)
+  createdAt          DateTime   @default(now())
 
   objectId String?
-  object   Object?  @relation(fields: [objectId], references: [id])
+  object   Object?   @relation(fields: [objectId], references: [id])
 
   operations Operation[]
+
+  // transfers
+  transfersCreated Transfer[] @relation("TransferCreatedBy")
+  transfersActed   Transfer[] @relation("TransferActedBy")
 }
 
 model Item {
@@ -70,18 +78,38 @@ model Operation {
   @@index([itemId, ts])
 }
 
+enum TransferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model Transfer {
-  id           String   @id @default(cuid())
-  code         String
-  name         String
-  qty          Int
-  status       String   @default("pending") // pending | accepted | rejected
-  createdAt    String
-  createdBy    String
-  ts           BigInt
+  id        String         @id @default(cuid())
+  code      String
+  name      String
+  qty       Int
+  status    TransferStatus @default(PENDING)
+
+  createdAt DateTime       @default(now())
+  ts        BigInt         // когда создано (как у операций)
+  time      String         // строка для UI
+
+  createdById String
+  createdBy   User          @relation("TransferCreatedBy", fields: [createdById], references: [id])
+
+  actedById String?
+  actedBy   User?           @relation("TransferActedBy", fields: [actedById], references: [id])
+  actedAt   DateTime?
+  actedTs   BigInt?
+  actedTime String?
 
   fromObjectId String
-  toObjectId   String
+  fromObject   Object       @relation("TransferFrom", fields: [fromObjectId], references: [id])
 
-  @@index([toObjectId, status])
+  toObjectId String
+  toObject   Object         @relation("TransferTo", fields: [toObjectId], references: [id])
+
+  @@index([toObjectId, status, createdAt])
+  @@index([fromObjectId, status, createdAt])
 }
