@@ -6,7 +6,6 @@
     "dev": "nodemon server.js",
 
     "prisma:generate": "prisma generate",
-    "migrate:deploy": "prisma migrate deploy",
     "seed": "node prisma/seed.js",
 
     "deploy": "npm run prisma:generate && npm run migrate:deploy && npm run seed"
