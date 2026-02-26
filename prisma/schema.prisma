@@ -113,3 +113,12 @@ model Transfer {
   @@index([toObjectId, status, createdAt])
   @@index([fromObjectId, status, createdAt])
 }
+// --- connect-pg-simple table (do not manage via Prisma) ---
+model Session {
+  sid    String   @id @db.VarChar(255)
+  sess   Json
+  expire DateTime @db.Timestamp(6)
+
+  @@map("session")
+  @@ignore
+}
