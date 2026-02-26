@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js",
-    "deploy": "prisma generate && prisma db push && prisma db seed",
+    "deploy": "prisma generate && prisma db push --accept-data-loss && prisma db seed",
     "dev": "nodemon server.js",
     "prisma:generate": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
