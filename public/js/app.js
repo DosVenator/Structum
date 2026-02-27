@@ -807,8 +807,13 @@ function closeConfirm() {
 }
 if (cNo) cNo.onclick = closeConfirm;
 if (cYes) cYes.onclick = () => {
-  if (typeof confirmAction === 'function') confirmAction();
-  closeConfirm();
+  const action = confirmAction;   // сохраняем
+  closeConfirm();                 // ✅ закрываем СНАЧАЛА
+
+  // ✅ потом выполняем (чтобы вложенный openConfirm не закрывался)
+  if (typeof action === 'function') {
+    setTimeout(() => action(), 0);
+  }
 };
 
 // ================================
