@@ -774,15 +774,15 @@ const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode, type 
               const typeLabel = r.type === 'in' ? 'Приход' : 'Расход';
               const sign = r.type === 'in' ? '+' : '-';
               return `
-                <tr>
-                  <td>${escapeHtml(r.time)}</td>
-                  <td>${escapeHtml(r.objectName)}</td>
-                  <td>${escapeHtml(r.itemName)}</td>
-                  <td>${typeLabel}</td>
-                  <td><b>${sign}${r.qty}</b></td>
-                  <td>${escapeHtml(r.from)}</td>
-                </tr>
-              `;
+  <tr>
+    <td data-label="Дата">${escapeHtml(r.time)}</td>
+    <td data-label="Объект">${escapeHtml(r.objectName)}</td>
+    <td data-label="Товар">${escapeHtml(r.itemName)}</td>
+    <td data-label="Тип">${typeLabel}</td>
+    <td data-label="Кол-во"><b>${sign}${r.qty}</b></td>
+    <td data-label="Откуда/Куда">${escapeHtml(r.from)}</td>
+  </tr>
+`;
             }).join('')}
           </tbody>
         </table>

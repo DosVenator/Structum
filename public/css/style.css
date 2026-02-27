@@ -618,3 +618,131 @@ body.modal-open{
   pointer-events:none;
   transition: opacity .35s ease;
 }
+/* === HARD FIX: no horizontal scroll on mobile === */
+html, body{
+  overflow-x: hidden;
+  width: 100%;
+}
+
+.container{
+  overflow-x: hidden;
+}
+
+*{
+  max-width: 100%;
+}
+/* === Modal/mobile fixes === */
+.modal{
+  padding: 12px;
+}
+
+.modal-content{
+  width: min(520px, 96vw);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* кнопки в модалках не в одну линию */
+.modal-actions{
+  flex-wrap: wrap;
+}
+
+.modal-actions button{
+  flex: 1 1 140px;
+}
+
+/* формы в отчёте: на мобиле в 1 колонку */
+@media (max-width: 560px){
+  .report-form{
+    grid-template-columns: 1fr !important;
+  }
+
+  .radio-row{
+    gap: 10px;
+  }
+
+  .admin-tools{
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-tools select,
+  .admin-tools button{
+    width: 100%;
+  }
+}
+/* ===== Report table -> cards on mobile ===== */
+@media (max-width: 720px){
+
+  /* таблица становится списком карточек */
+  .report-table{
+    min-width: 0 !important;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 10px;
+  }
+
+  .report-table thead{
+    display:none;
+  }
+
+  .report-table,
+  .report-table tbody,
+  .report-table tr,
+  .report-table td{
+    display:block;
+    width:100%;
+  }
+
+  .report-table tr{
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px;
+    padding: 10px 12px;
+  }
+
+  .report-table td{
+    border: none !important;
+    padding: 8px 0 !important;
+    display:flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  /* подписи слева */
+  .report-table td::before{
+    content: attr(data-label);
+    color: rgba(232,236,255,.65);
+    font-size: 13px;
+    flex: 0 0 42%;
+    max-width: 42%;
+  }
+
+  /* значения справа */
+  .report-table td{
+    font-size: 14px;
+  }
+
+  .report-table td > b,
+  .report-table td > span,
+  .report-table td{
+    word-break: break-word;
+  }
+
+  /* таблица больше не должна требовать горизонтальный скролл */
+  .table-wrap{
+    overflow: visible !important;
+    max-height: none !important;
+    border: none;
+  }
+}
+@media (max-width: 480px){
+  .item-actions{
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .item-actions button{
+    flex: 1 1 46px;
+  }
+}
