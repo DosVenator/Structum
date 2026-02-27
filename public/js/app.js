@@ -820,15 +820,34 @@ if (cYes) cYes.onclick = () => {
 // Password change modal
 // ================================
 const pwdModal = document.getElementById('pwdModal');
+const pOld = document.getElementById('pOld');
+const pOldLabel = document.getElementById('pOldLabel');
 const p1 = document.getElementById('p1');
 const p2 = document.getElementById('p2');
 const pError = document.getElementById('pError');
 const pSave  = document.getElementById('pSave');
 
-function openPwdModal(){
+let pwdRequireOld = false;
+
+function openPwdModal({ requireOld = false } = {}){
+  pwdRequireOld = !!requireOld;
+
+  if (pOld) pOld.value = '';
   p1.value = '';
   p2.value = '';
   pError.textContent = '';
+
+  // показываем/скрываем поле старого пароля
+  if (pOld && pOldLabel) {
+    if (pwdRequireOld) {
+      pOld.classList.remove('hidden');
+      pOldLabel.classList.remove('hidden');
+    } else {
+      pOld.classList.add('hidden');
+      pOldLabel.classList.add('hidden');
+    }
+  }
+
   pwdModal.classList.remove('hidden');
 }
 function closePwdModal(){
@@ -845,14 +864,17 @@ if (pSave) {
 
     pSave.disabled = true;
     try {
-      const r = await store.changePassword(a);
+      const old = pwdRequireOld ? String(pOld?.value || '') : '';
+const r = await store.changePassword(a, old);
       if (!r.ok) {
         const msg =
-          r.error === 'weak-password' ? 'Слишком простой пароль' :
-          r.error === 'inactive' ? 'Аккаунт деактивирован' :
-          `Ошибка: ${r.status || ''} ${r.error || ''}`;
-        pError.textContent = msg.trim();
-        return;
+  r.error === 'weak-password' ? 'Слишком простой пароль' :
+  r.error === 'inactive' ? 'Аккаунт деактивирован' :
+  r.error === 'old-required' ? 'Введите старый пароль' :
+  r.error === 'old-invalid' ? 'Старый пароль неверный' :
+  `Ошибка: ${r.status || ''} ${r.error || ''}`;
+pError.textContent = msg.trim();
+return;
       }
 
       closePwdModal();
@@ -1095,7 +1117,7 @@ loginBtn.onclick = async () => {
 
   const u = await store.currentUserObj();
   if (u?.mustChangePassword) {
-    openPwdModal();
+    openPwdModal({ requireOld: false });
     return;
   }
 
@@ -1131,6 +1153,22 @@ async function afterLogin(){
   if (u.role === 'admin') {
     userControls.classList.add('hidden');
     adminPanel.classList.remove('hidden');
+    // ✅ кнопка смены пароля админа (показываем один раз)
+let btn = document.getElementById('adminChangePwdBtn');
+if (!btn) {
+  btn = document.createElement('button');
+  btn.id = 'adminChangePwdBtn';
+  btn.className = 'btn btn-secondary';
+  btn.textContent = '🔑 Сменить пароль';
+  btn.style.marginTop = '12px';
+
+  btn.onclick = () => {
+    // админ меняет пароль добровольно -> нужен старый пароль
+    openPwdModal({ requireOld: true });
+  };
+
+  adminPanel.appendChild(btn);
+}
     if (transferBtn) transferBtn.classList.add('hidden');
 
     await initAdminObjectSelect();
@@ -1345,7 +1383,7 @@ searchInput.addEventListener('input', async (e) => {
     appBox.classList.remove('hidden');
 
     if (u.mustChangePassword) {
-      openPwdModal();
+      openPwdModal({ requireOld: false });
       splashSetProgress(100);
       splashHide();
       return;

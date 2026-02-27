@@ -49,9 +49,15 @@ async function currentUserObj() {
   return _me;
 }
 
-async function changePassword(newPassword) {
+async function changePassword(newPassword, oldPassword = '') {
   try {
-    await api('/api/change-password', { method: 'POST', body: { newPassword: String(newPassword || '') } });
+    await api('/api/change-password', {
+      method: 'POST',
+      body: {
+        newPassword: String(newPassword || ''),
+        oldPassword: String(oldPassword || '')
+      }
+    });
     if (_me) _me.mustChangePassword = false;
     return { ok: true };
   } catch (e) {

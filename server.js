@@ -167,10 +167,12 @@ app.get('/api/me', (req, res) => {
 /* ===========================
    ✅ Change password (реально)
    =========================== */
-// body: { newPassword }
+// body: { oldPassword?, newPassword }
 app.post('/api/change-password', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
+
+    const oldPassword = String(req.body.oldPassword || '');
     const newPassword = String(req.body.newPassword || '');
 
     if (!isStrongEnoughPassword(newPassword)) {
@@ -181,6 +183,17 @@ app.post('/api/change-password', requireAuth, async (req, res, next) => {
     if (!user) return res.status(404).json({ ok: false, error: 'not-found' });
     if (user.active === false) return res.status(403).json({ ok: false, error: 'inactive' });
 
+    // ✅ если это НЕ обязательная смена (mustChangePassword=false),
+    // то требуем старый пароль и проверяем его
+    const forced = user.mustChangePassword === true;
+
+    if (!forced) {
+      if (!oldPassword) return res.status(400).json({ ok: false, error: 'old-required' });
+
+      const okOld = await bcrypt.compare(oldPassword, user.passwordHash);
+      if (!okOld) return res.status(401).json({ ok: false, error: 'old-invalid' });
+    }
+
     const hash = await bcrypt.hash(newPassword, 10);
 
     await prisma.user.update({
@@ -190,9 +203,7 @@ app.post('/api/change-password', requireAuth, async (req, res, next) => {
 
     // ✅ обновляем сессию сразу
     req.session.user.mustChangePassword = false;
-    req.session.save(() => {
-      res.json({ ok: true });
-    });
+    req.session.save(() => res.json({ ok: true }));
   } catch (e) {
     next(e);
   }
