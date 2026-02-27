@@ -128,7 +128,7 @@ async function createTransfer({ itemId, toObjectId, qty }) {
     });
     return { ok: true, transfer: r.transfer };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 
@@ -137,7 +137,7 @@ async function getIncomingTransfers() {
     const r = await api('/api/transfers/incoming');
     return { ok: true, transfers: r.transfers || [] };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 
@@ -146,7 +146,7 @@ async function getOutgoingTransfers() {
     const r = await api('/api/transfers/outgoing');
     return { ok: true, transfers: r.transfers || [] };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 
@@ -155,7 +155,7 @@ async function acceptTransfer(id) {
     const r = await api(`/api/transfers/${encodeURIComponent(id)}/accept`, { method: 'POST' });
     return { ok: true, transfer: r.transfer };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 
@@ -164,7 +164,7 @@ async function rejectTransfer(id) {
     const r = await api(`/api/transfers/${encodeURIComponent(id)}/reject`, { method: 'POST' });
     return { ok: true, transfer: r.transfer };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 

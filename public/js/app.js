@@ -253,80 +253,80 @@ if (confirmTransfer) {
   };
 }
 
-async function openIncomingTransfers(){
+async function openIncomingTransfers() {
   const u = await store.currentUserObj();
   if (!u || u.role !== 'user') return;
 
-  if (!store.getIncomingTransfers) {
-    appToast('Передачи ещё не подключены в store.js');
-    return;
-  }
+  const incomingList = document.getElementById('incomingList');
+  const incomingModal = document.getElementById('incomingModal');
+
+  if (!incomingList || !incomingModal) return;
 
   incomingList.innerHTML = `<li><span class="muted">Загрузка…</span></li>`;
-  document.body.classList.add('modal-open');
   incomingModal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
 
-  const r = await store.getIncomingTransfers();
-  if (!r.ok) {
-    incomingList.innerHTML = `<li><span class="muted">Ошибка загрузки: ${r.status || ''} ${r.error || ''}</span></li>`;
+  const res = await store.getIncomingTransfers();
+  if (!res.ok) {
+    incomingList.innerHTML = `<li><span class="muted">Ошибка: ${res.status || ''} ${res.error || ''}</span></li>`;
     return;
   }
 
-  const list = r.transfers || [];
-  if (!list.length) {
+  const transfers = res.transfers || [];
+  if (!transfers.length) {
     incomingList.innerHTML = `<li><span class="muted">Нет входящих передач</span></li>`;
     return;
   }
 
   incomingList.innerHTML = '';
-  list.forEach(tr => {
+  transfers.forEach(t => {
     const li = document.createElement('li');
     li.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <div><b>${escapeHtml(tr.name)}</b> <span class="muted">(${escapeHtml(tr.code)})</span></div>
-        <div class="muted">Кол-во: <b>${tr.qty}</b></div>
-        <div class="muted" style="font-size:12px">${escapeHtml(tr.time || '')}</div>
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <button class="btn btn-primary" data-acc="${tr.id}">✅ Принять</button>
-          <button class="btn btn-danger" data-rej="${tr.id}">❌ Отклонить</button>
+      <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+        <div><b>${t.name}</b> <span class="muted">(${t.code})</span></div>
+        <div class="muted">Откуда: <b>${t.fromObjectName || '—'}</b></div>
+        <div class="muted">Кол-во: <b>${t.qty}</b></div>
+        <div class="muted">${t.time || ''}</div>
+
+        <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn btn-primary" data-accept="${t.id}">✅ Принять</button>
+          <button class="btn btn-danger" data-reject="${t.id}">✖ Отклонить</button>
         </div>
       </div>
     `;
     incomingList.appendChild(li);
   });
 
-  incomingList.querySelectorAll('[data-acc]').forEach(btn => {
+  incomingList.querySelectorAll('[data-accept]').forEach(btn => {
     btn.onclick = async () => {
-      const id = btn.getAttribute('data-acc');
       btn.disabled = true;
-      const rr = await store.acceptTransfer(id);
-      if (!rr.ok) appToast(`Ошибка: ${rr.status || ''} ${rr.error || ''}`);
-
-      // обновим список входящих и экран
-      await openIncomingTransfers();
-      await renderList(searchInput.value);
-      await updateTransferBadge();
+      const id = btn.getAttribute('data-accept');
+      const r = await store.acceptTransfer(id);
+      if (!r.ok) {
+        window.appToast?.(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+        btn.disabled = false;
+        return;
+      }
+      window.appToast?.('✅ Принято');
+      await renderList(document.getElementById('search')?.value || '');
+      await openIncomingTransfers(); // перерисовать
     };
   });
 
-  incomingList.querySelectorAll('[data-rej]').forEach(btn => {
+  incomingList.querySelectorAll('[data-reject]').forEach(btn => {
     btn.onclick = async () => {
-      const id = btn.getAttribute('data-rej');
       btn.disabled = true;
-      const rr = await store.rejectTransfer(id);
-      if (!rr.ok) appToast(`Ошибка: ${rr.status || ''} ${rr.error || ''}`);
-
-      await openIncomingTransfers();
-      await renderList(searchInput.value);
-      await updateTransferBadge();
+      const id = btn.getAttribute('data-reject');
+      const r = await store.rejectTransfer(id);
+      if (!r.ok) {
+        window.appToast?.(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+        btn.disabled = false;
+        return;
+      }
+      window.appToast?.('⛔ Отклонено');
+      await openIncomingTransfers(); // перерисовать
     };
   });
-}
-
-if (transferBtn) {
-  transferBtn.onclick = async () => {
-    await openIncomingTransfers();
-  };
 }
 
 // ================================
