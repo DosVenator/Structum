@@ -746,3 +746,22 @@ html, body{
     flex: 1 1 46px;
   }
 }
+/* ===== REPORT: DESKTOP (без горизонтального скролла, как раньше) ===== */
+@media (min-width: 721px){
+  .table-wrap{
+    overflow-x: hidden;       /* убираем боковой скролл */
+    overflow-y: auto;         /* оставляем вертикальный */
+    max-height: 65vh;         /* можно чуть больше */
+  }
+
+  .report-table{
+    min-width: 0 !important;  /* ключевое: не заставляем расширяться */
+    width: 100%;
+  }
+
+  .report-table th,
+  .report-table td{
+    white-space: normal;      /* разрешаем перенос */
+    word-break: break-word;   /* чтобы длинное “Откуда/Куда” не ломало ширину */
+  }
+}

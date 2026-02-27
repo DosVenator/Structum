@@ -506,15 +506,18 @@ async function renderAdminUsers(){
   if (!usersList) return;
 
   const me = await store.currentUserObj();
+
   const r = await store.getUsers();
   if (!r.ok) {
     usersList.innerHTML = `<li><span class="muted">Ошибка загрузки пользователей</span></li>`;
     return;
   }
 
+  // сервер уже отдаёт только active=true и без меня,
+  // но оставим фильтры как “страховку”
   const users = (r.users || [])
-    .filter(u => u.active)          // ✅ скрываем удалённых
-    .filter(u => u.id !== me?.id);  // ✅ скрываем админа (себя)
+    .filter(u => u && u.active)
+    .filter(u => u.id !== me?.id);
 
   if (!users.length) {
     usersList.innerHTML = `<li><span class="muted">Пользователей нет</span></li>`;
@@ -522,8 +525,10 @@ async function renderAdminUsers(){
   }
 
   usersList.innerHTML = '';
+
   users.forEach(u => {
     const li = document.createElement('li');
+    li.dataset.userId = u.id;
 
     li.innerHTML = `
       <span>👤 ${escapeHtml(u.login)} <span class="muted">(${escapeHtml(u.role)})</span></span>
@@ -550,17 +555,27 @@ async function renderAdminUsers(){
             text: `Подтвердите удаление пользователя.`,
             yesText: 'Удалить',
             onYes: async () => {
-              const r = await store.adminDeleteUser(id);
-              if (!r.ok) {
+              // ✅ моментально убираем из списка (UX)
+              const li = usersList.querySelector(`li[data-user-id="${CSS.escape(id)}"]`);
+              if (li) li.remove();
+
+              const resp = await store.adminDeleteUser(id);
+              if (!resp.ok) {
+                // если ошибка — перерисуем обратно актуальный список
                 const msg =
-                  r.error === 'cannot-delete-self'
+                  resp.error === 'cannot-delete-self'
                     ? 'Нельзя удалить себя'
-                    : `Ошибка: ${r.status || ''} ${r.error || ''}`;
+                    : `Ошибка: ${resp.status || ''} ${resp.error || ''}`;
                 appToast(msg.trim());
+
+                await renderAdminUsers();
                 return;
               }
+
               appToast('✅ Пользователь удалён');
-              await renderAdminUsers(); // ✅ перерисовали — пользователь исчез
+
+              // ✅ финальная синхронизация с сервером
+              await renderAdminUsers();
             }
           });
         }

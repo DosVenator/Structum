@@ -258,28 +258,29 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =>
   try {
     const meId = req.session.user.id;
 
-const users = await prisma.user.findMany({
-  where: {
-    active: true,
-    NOT: { id: meId }          // ✅ не отдаём текущего админа
-  },
-  orderBy: { createdAt: 'desc' },
-  take: 500,
-  include: { object: { select: { id: true, name: true } } }
-});
+    const users = await prisma.user.findMany({
+      where: {
+        active: true,
+        NOT: { id: meId }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      include: { object: { select: { id: true, name: true } } }
+    });
 
-    const safe = users.map(u => ({
-      id: u.id,
-      login: u.login,
-      role: u.role,
-      objectId: u.objectId,
-      objectName: u.object?.name || null,
-      mustChangePassword: u.mustChangePassword,
-      active: u.active !== false,
-      createdAt: u.createdAt
-    }));
-
-    res.json({ ok: true, users: safe });
+    res.json({
+      ok: true,
+      users: users.map(u => ({
+        id: u.id,
+        login: u.login,
+        role: u.role,
+        objectId: u.objectId,
+        objectName: u.object?.name || null,
+        mustChangePassword: u.mustChangePassword,
+        active: true,
+        createdAt: u.createdAt
+      }))
+    });
   } catch (e) {
     next(e);
   }
