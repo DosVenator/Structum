@@ -265,6 +265,63 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     next(e);
   }
 });
+// --- REPORT (admin) ---
+// query: objectId=all|<id>, fromTs, toTs, itemCode?, type=all|in|out
+app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const objectId = String(req.query.objectId || 'all');
+    const itemCode = String(req.query.itemCode || '').trim();
+    const type = String(req.query.type || 'all').trim(); // all | in | out
+
+    const fromTsNum = Number(req.query.fromTs || 0);
+    const toTsNum = Number(req.query.toTs || Date.now());
+
+    if (!Number.isFinite(fromTsNum) || !Number.isFinite(toTsNum)) {
+      return res.status(400).json({ ok: false, error: 'bad-ts' });
+    }
+
+    const fromTs = BigInt(Math.max(0, Math.floor(fromTsNum)));
+    const toTs = BigInt(Math.max(0, Math.floor(toTsNum)));
+
+    const where = {
+      ts: { gte: fromTs, lte: toTs }
+    };
+
+    if (objectId !== 'all') where.objectId = objectId;
+    if (type === 'in' || type === 'out') where.type = type;
+
+    // фильтр по товару (через relation item.code)
+    if (itemCode) {
+      where.item = { code: itemCode };
+    }
+
+    const ops = await prisma.operation.findMany({
+      where,
+      orderBy: { ts: 'desc' },
+      take: 5000,
+      include: {
+        item: { select: { code: true, name: true } },
+        object: { select: { name: true } }
+      }
+    });
+
+    const rows = ops.map(op => ({
+      ts: op.ts, // bigint -> json replacer превратит в string
+      time: op.time,
+      objectId: op.objectId,
+      objectName: op.object?.name || 'Объект',
+      itemCode: op.item?.code || '',
+      itemName: op.item?.name || '',
+      type: op.type,
+      qty: op.qty,
+      from: op.from
+    }));
+
+    res.json({ ok: true, rows });
+  } catch (e) {
+    next(e);
+  }
+});
 
 // --- REPORT (если у тебя уже есть фильтр type — оставь как есть; здесь не трогаем) ---
 

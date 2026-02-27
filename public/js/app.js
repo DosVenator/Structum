@@ -160,19 +160,29 @@ async function updateTransferBadge(){
     return;
   }
 
-  // если методов нет (вдруг store.js ещё не обновили) — просто прячем
-  if (!store.getIncomingTransfers) {
+  if (!store.getIncomingTransfers || !store.getOutgoingTransfers) {
     if (transferBadge) transferBadge.classList.add('hidden');
     return;
   }
 
-  const r = await store.getIncomingTransfers();
-  const n = r.ok ? (r.transfers?.length || 0) : 0;
+  const [inc, out] = await Promise.all([
+    store.getIncomingTransfers(),
+    store.getOutgoingTransfers()
+  ]);
+
+  const nIn = inc.ok ? (inc.transfers?.length || 0) : 0;
+  const nOut = out.ok ? (out.transfers?.length || 0) : 0;
+
+  const nTotal = nIn + nOut;
 
   if (!transferBadge) return;
-  if (n > 0) {
-    transferBadge.textContent = String(n);
+  if (nTotal > 0) {
+    // показываем общий pending, чтобы отправитель тоже видел
+    transferBadge.textContent = String(nTotal);
     transferBadge.classList.remove('hidden');
+
+    // подсказка на hover (полезно)
+    transferBadge.title = `Входящие: ${nIn}, Исходящие: ${nOut}`;
   } else {
     transferBadge.classList.add('hidden');
   }
@@ -257,46 +267,88 @@ async function openIncomingTransfers() {
   const u = await store.currentUserObj();
   if (!u || u.role !== 'user') return;
 
-  const incomingList = document.getElementById('incomingList');
-  const incomingModal = document.getElementById('incomingModal');
-
   if (!incomingList || !incomingModal) return;
 
   incomingList.innerHTML = `<li><span class="muted">Загрузка…</span></li>`;
   incomingModal.classList.remove('hidden');
   document.body.classList.add('modal-open');
 
-  const res = await store.getIncomingTransfers();
-  if (!res.ok) {
-    incomingList.innerHTML = `<li><span class="muted">Ошибка: ${res.status || ''} ${res.error || ''}</span></li>`;
+  const [inc, out] = await Promise.all([
+    store.getIncomingTransfers(),
+    store.getOutgoingTransfers()
+  ]);
+
+  if (!inc.ok && !out.ok) {
+    incomingList.innerHTML =
+      `<li><span class="muted">Ошибка: ${inc.status || out.status || ''} ${inc.error || out.error || ''}</span></li>`;
     return;
   }
 
-  const transfers = res.transfers || [];
-  if (!transfers.length) {
-    incomingList.innerHTML = `<li><span class="muted">Нет входящих передач</span></li>`;
-    return;
-  }
+  const incoming = inc.ok ? (inc.transfers || []) : [];
+  const outgoing = out.ok ? (out.transfers || []) : [];
 
   incomingList.innerHTML = '';
-  transfers.forEach(t => {
+
+  // --- INCOMING ---
+  const headIn = document.createElement('li');
+  headIn.innerHTML = `<b>📥 Входящие (ожидают)</b>`;
+  incomingList.appendChild(headIn);
+
+  if (!incoming.length) {
     const li = document.createElement('li');
-    li.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-        <div><b>${t.name}</b> <span class="muted">(${t.code})</span></div>
-        <div class="muted">Откуда: <b>${t.fromObjectName || '—'}</b></div>
-        <div class="muted">Кол-во: <b>${t.qty}</b></div>
-        <div class="muted">${t.time || ''}</div>
-
-        <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-primary" data-accept="${t.id}">✅ Принять</button>
-          <button class="btn btn-danger" data-reject="${t.id}">✖ Отклонить</button>
-        </div>
-      </div>
-    `;
+    li.innerHTML = `<span class="muted">Нет входящих передач</span>`;
     incomingList.appendChild(li);
-  });
+  } else {
+    incoming.forEach(t => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+          <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
+          <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName || '—')}</b></div>
+          <div class="muted">Кол-во: <b>${t.qty}</b></div>
+          <div class="muted">${escapeHtml(t.time || '')}</div>
 
+          <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+            <button class="btn btn-primary" data-accept="${t.id}">✅ Принять</button>
+            <button class="btn btn-danger" data-reject="${t.id}">✖ Отклонить</button>
+          </div>
+        </div>
+      `;
+      incomingList.appendChild(li);
+    });
+  }
+
+  // divider
+  const hr = document.createElement('li');
+  hr.innerHTML = `<div style="height:1px;background:rgba(255,255,255,.08);margin:6px 0"></div>`;
+  incomingList.appendChild(hr);
+
+  // --- OUTGOING ---
+  const headOut = document.createElement('li');
+  headOut.innerHTML = `<b>📤 Исходящие (ожидают подтверждения)</b>`;
+  incomingList.appendChild(headOut);
+
+  if (!outgoing.length) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="muted">Нет исходящих ожиданий</span>`;
+    incomingList.appendChild(li);
+  } else {
+    outgoing.forEach(t => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+          <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
+          <div class="muted">Куда: <b>${escapeHtml(t.toObjectName || '—')}</b></div>
+          <div class="muted">Кол-во: <b>${t.qty}</b></div>
+          <div class="muted">${escapeHtml(t.time || '')}</div>
+          <div class="muted">Статус: <b>ожидает</b></div>
+        </div>
+      `;
+      incomingList.appendChild(li);
+    });
+  }
+
+  // bind actions incoming accept/reject
   incomingList.querySelectorAll('[data-accept]').forEach(btn => {
     btn.onclick = async () => {
       btn.disabled = true;
@@ -309,7 +361,8 @@ async function openIncomingTransfers() {
       }
       window.appToast?.('✅ Принято');
       await renderList(document.getElementById('search')?.value || '');
-      await openIncomingTransfers(); // перерисовать
+      await updateTransferBadge();
+      await openIncomingTransfers();
     };
   });
 
@@ -324,11 +377,16 @@ async function openIncomingTransfers() {
         return;
       }
       window.appToast?.('⛔ Отклонено');
-      await openIncomingTransfers(); // перерисовать
+      await updateTransferBadge();
+      await openIncomingTransfers();
     };
   });
 }
-
+if (transferBtn) {
+  transferBtn.onclick = async () => {
+    await openIncomingTransfers();
+  };
+}
 // ================================
 // Admin panel (CRUD пока выключен)
 // ================================
@@ -702,6 +760,11 @@ async function afterLogin(){
   }
 
   await updateTransferBadge();
+  // авто-обновление бейджа каждые 20 сек (pending вход/выход)
+if (window.__transferBadgeTimer) clearInterval(window.__transferBadgeTimer);
+window.__transferBadgeTimer = setInterval(() => {
+  updateTransferBadge().catch(() => {});
+}, 20000);
   await renderList(searchInput.value);
   renderAdmin();
 }
