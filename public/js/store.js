@@ -100,18 +100,19 @@ async function getHistory(itemId) {
 }
 
 // report
-async function adminGetReport({ objectId, fromTs, toTs, itemCode }) {
+async function adminGetReport({ objectId, fromTs, toTs, itemCode, type = 'all' }) {
   try {
     const qs = new URLSearchParams({
       objectId: objectId || 'all',
       fromTs: String(fromTs || 0),
       toTs: String(toTs || Date.now()),
-      itemCode: String(itemCode || '')
+      itemCode: String(itemCode || ''),
+      type: String(type || 'all')
     });
     const r = await api('/api/report?' + qs.toString());
     return { ok: true, rows: r.rows || [] };
   } catch (e) {
-    return { ok: false, status: e.status, error: e.data?.error || 'server' };
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
 

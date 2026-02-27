@@ -9,7 +9,7 @@ const { PrismaClient } = require('@prisma/client');
 const app = express();
 app.set('trust proxy', 1);
 
-// ✅ чтобы res.json умел BigInt (Prisma возвращает BigInt для ts)
+// ✅ BigInt-safe JSON для res.json()
 app.set('json replacer', (key, value) =>
   typeof value === 'bigint' ? value.toString() : value
 );
@@ -81,9 +81,23 @@ function requireUser(req, res, next) {
     return res.status(403).json({ ok: false, error: 'forbidden' });
   next();
 }
+
+// ✅ Киевское время (Europe/Kyiv)
+function kyivTimeString(date = new Date()) {
+  return new Intl.DateTimeFormat('uk-UA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(date);
+}
+
 function nowMeta() {
   const ts = BigInt(Date.now());
-  const time = new Date().toLocaleString();
+  const time = kyivTimeString(new Date());
   return { ts, time };
 }
 
@@ -193,7 +207,7 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
       qty: op.qty,
       from: op.from,
       time: op.time,
-      ts: op.ts.toString()
+      ts: op.ts
     }));
 
     res.json({ ok: true, history });
@@ -253,12 +267,14 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
 });
 
 // --- REPORT ---
+// ✅ добавили фильтр type: all|in|out и сортировку по ts
 app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const objectId = String(req.query.objectId || 'all');
     const fromTs = BigInt(Number(req.query.fromTs || 0));
     const toTs = BigInt(Number(req.query.toTs || Date.now()));
     const itemCode = String(req.query.itemCode || '').trim();
+    const type = String(req.query.type || 'all').trim(); // all|in|out
 
     const whereItem = {};
     if (objectId !== 'all') whereItem.objectId = objectId;
@@ -269,12 +285,14 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
       include: { object: true, operations: true }
     });
 
-    const rows = [];
+    let rows = [];
     for (const it of items) {
       for (const op of it.operations) {
         if (op.ts < fromTs || op.ts > toTs) continue;
+        if (type !== 'all' && op.type !== type) continue;
+
         rows.push({
-          ts: op.ts.toString(),
+          ts: op.ts,
           time: op.time,
           objectId: it.objectId,
           objectName: it.object?.name || 'Объект',
@@ -287,7 +305,9 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
       }
     }
 
+    // ✅ хронология: по времени (новые сверху)
     rows.sort((a, b) => Number(b.ts) - Number(a.ts));
+
     res.json({ ok: true, rows });
   } catch (e) {
     next(e);
@@ -295,7 +315,9 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 /* ===========================
-   TRANSFERS (под твой schema.prisma: enum TransferStatus + createdById/actedById)
+   TRANSFERS (под твою схему: enum TransferStatus + time/ts + createdById/actedById)
+   ✅ исправили "откуда/куда" -> названия складов
+   ✅ время -> Киев
    =========================== */
 
 // создать передачу (user)
@@ -319,18 +341,21 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
       if (item.objectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
       if (item.quantity < qty) return { err: { status: 400, error: 'not-enough' } };
 
+      const toObj = await tx.object.findUnique({ where: { id: toObjectId } });
+      if (!toObj) return { err: { status: 404, error: 'to-object-not-found' } };
+
       // списать у отправителя
       await tx.item.update({
         where: { id: item.id },
         data: { quantity: item.quantity - qty }
       });
 
-      // операция out у отправителя
+      // операция out у отправителя (✅ пишем имя склада)
       await tx.operation.create({
         data: {
           type: 'out',
           qty,
-          from: `Передача → ${toObjectId}`,
+          from: `Передача → ${toObj.name}`,
           ts,
           time,
           objectId: u.objectId,
@@ -413,6 +438,8 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
       if (tr.status !== 'PENDING') return { err: { status: 400, error: 'bad-status' } };
 
+      const fromObj = await tx.object.findUnique({ where: { id: tr.fromObjectId } });
+
       // upsert item у получателя
       const item = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
@@ -420,12 +447,12 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         create: { objectId: tr.toObjectId, code: tr.code, name: tr.name, quantity: tr.qty }
       });
 
-      // операция in у получателя
+      // операция in у получателя (✅ пишем имя склада)
       await tx.operation.create({
         data: {
           type: 'in',
           qty: tr.qty,
-          from: `Передача ← ${tr.fromObjectId}`,
+          from: `Передача ← ${fromObj?.name || 'Склад'}`,
           ts: actedTs,
           time: actedTime,
           objectId: tr.toObjectId,
@@ -470,6 +497,8 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
       if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
       if (tr.status !== 'PENDING') return { err: { status: 400, error: 'bad-status' } };
 
+      const toObj = await tx.object.findUnique({ where: { id: tr.toObjectId } });
+
       // вернуть qty отправителю
       const fromItem = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.fromObjectId, code: tr.code } },
@@ -481,7 +510,7 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
         data: {
           type: 'in',
           qty: tr.qty,
-          from: `Возврат (отклонено) ← ${tr.toObjectId}`,
+          from: `Возврат (отклонено) ← ${toObj?.name || 'Склад'}`,
           ts: actedTs,
           time: actedTime,
           objectId: tr.fromObjectId,

@@ -457,6 +457,7 @@ const rModeAll = document.getElementById('rModeAll');
 const rModeOne = document.getElementById('rModeOne');
 const rItemWrap = document.getElementById('rItemWrap');
 const rItem = document.getElementById('rItem');
+const rType = document.getElementById('rType');
 const rBuild = document.getElementById('rBuild');
 const rError = document.getElementById('rError');
 const rTableWrap = document.getElementById('rTableWrap');
@@ -500,6 +501,7 @@ async function openReportModal(){
   rTo.value = ymdToday();
 
   rModeAll.checked = true;
+  if (rType) rType.value = 'all';
   rItemWrap.classList.add('hidden');
   rError.textContent = '';
   rTableWrap.innerHTML = '';
@@ -573,7 +575,9 @@ if (rBuild) {
     if (toTs < fromTs) { rError.textContent = 'Конечная дата меньше начальной'; return; }
 
     const itemCode = rModeOne.checked ? (rItem.value || '') : '';
-    const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode });
+const type = rType ? (rType.value || 'all') : 'all';
+
+const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode, type });
     if (!res.ok) { rError.textContent = `Ошибка формирования отчёта: ${res.error || 'server'}`; return; }
 
     const rows = res.rows || [];
