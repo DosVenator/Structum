@@ -35,6 +35,27 @@ function soon(msg = 'Скоро будет ✅') {
   appToast(msg);
 }
 
+/* ================= Splash Logic ================= */
+
+function splashSetText(text){
+  const el = document.getElementById('splashText');
+  if (el) el.textContent = text;
+}
+
+function splashSetProgress(p){
+  const bar = document.getElementById('splashBar');
+  if (bar) bar.style.width = `${Math.min(100, Math.max(0, p))}%`;
+}
+
+function splashHide(){
+  const el = document.getElementById('appSplash');
+  if (!el) return;
+  el.classList.add('hide');
+  setTimeout(() => el.remove(), 400);
+}
+
+/* страховка — если что-то зависло */
+setTimeout(() => splashHide(), 8000);
 // ================================
 // Modals: history
 // ================================
@@ -969,19 +990,37 @@ searchInput.addEventListener('input', async (e) => {
 // ================================
 (async function boot(){
   try {
+    splashSetText("Проверяем сессию…");
+    splashSetProgress(20);
+
     const u = await store.currentUserObj();
-    if (!u) return;
+
+    if (!u) {
+      splashSetProgress(100);
+      splashHide();
+      return;
+    }
+
+    splashSetText("Загружаем данные…");
+    splashSetProgress(50);
 
     loginBox.classList.add('hidden');
     appBox.classList.remove('hidden');
 
     if (u.mustChangePassword) {
       openPwdModal();
+      splashSetProgress(100);
+      splashHide();
       return;
     }
 
     await afterLogin();
+
+    splashSetProgress(100);
+    setTimeout(() => splashHide(), 300);
+
   } catch (e) {
-    console.log('boot: no session');
+    console.log('boot error', e);
+    splashHide();
   }
 })();
