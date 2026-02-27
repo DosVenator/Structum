@@ -101,6 +101,18 @@ function nowMeta() {
   return { ts, time };
 }
 
+// --- admin helpers ---
+function cleanName(s) {
+  return String(s || '').trim();
+}
+function cleanLogin(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+function isStrongEnoughPassword(p) {
+  const s = String(p || '');
+  return s.length >= 4; // можешь поднять до 6/8
+}
+
 // --- AUTH ---
 app.post('/api/login', async (req, res, next) => {
   try {
@@ -157,6 +169,100 @@ app.get('/api/objects', requireAuth, async (req, res, next) => {
     const objects = await prisma.object.findMany({ orderBy: { name: 'asc' } });
     res.json({ ok: true, objects });
   } catch (e) {
+    next(e);
+  }
+});
+
+/* ===========================
+   ADMIN: Objects & Users
+   =========================== */
+
+// создать склад
+app.post('/api/admin/objects', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const name = cleanName(req.body.name);
+    if (!name) return res.status(400).json({ ok: false, error: 'name-required' });
+
+    const created = await prisma.object.create({
+      data: { name, active: true }
+    });
+
+    res.json({ ok: true, object: created });
+  } catch (e) {
+    if (e?.code === 'P2002') return res.status(409).json({ ok: false, error: 'object-exists' });
+    next(e);
+  }
+});
+
+// список пользователей (без passwordHash)
+app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      include: { object: { select: { id: true, name: true } } }
+    });
+
+    const safe = users.map(u => ({
+      id: u.id,
+      login: u.login,
+      role: u.role,
+      objectId: u.objectId,
+      objectName: u.object?.name || null,
+      mustChangePassword: u.mustChangePassword,
+      createdAt: u.createdAt
+    }));
+
+    res.json({ ok: true, users: safe });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// создать пользователя
+app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const login = cleanLogin(req.body.login);
+    const password = String(req.body.password || '');
+    const role = String(req.body.role || 'user').trim(); // 'admin' | 'user'
+    const objectIdRaw = req.body.objectId;
+
+    if (!login) return res.status(400).json({ ok: false, error: 'login-required' });
+    if (!isStrongEnoughPassword(password)) return res.status(400).json({ ok: false, error: 'weak-password' });
+    if (role !== 'admin' && role !== 'user') return res.status(400).json({ ok: false, error: 'bad-role' });
+
+    const objectId = role === 'user' ? String(objectIdRaw || '').trim() : null;
+    if (role === 'user' && !objectId) return res.status(400).json({ ok: false, error: 'object-required' });
+
+    if (role === 'user') {
+      const obj = await prisma.object.findUnique({ where: { id: objectId } });
+      if (!obj) return res.status(404).json({ ok: false, error: 'object-not-found' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const created = await prisma.user.create({
+      data: {
+        login,
+        passwordHash,
+        role,
+        objectId,
+        mustChangePassword: true
+      }
+    });
+
+    res.json({
+      ok: true,
+      user: {
+        id: created.id,
+        login: created.login,
+        role: created.role,
+        objectId: created.objectId,
+        mustChangePassword: created.mustChangePassword
+      }
+    });
+  } catch (e) {
+    if (e?.code === 'P2002') return res.status(409).json({ ok: false, error: 'login-exists' });
     next(e);
   }
 });
@@ -220,7 +326,7 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
         ts: { gte: fromTs, lte: toTs }
       },
       orderBy: { ts: 'desc' },
-      take: 500 // защита от огромных выборок
+      take: 500
     });
 
     const history = ops.map(op => ({
@@ -286,6 +392,7 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     next(e);
   }
 });
+
 // --- REPORT (admin) ---
 // query: objectId=all|<id>, fromTs, toTs, itemCode?, type=all|in|out
 app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
@@ -311,7 +418,6 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
     if (objectId !== 'all') where.objectId = objectId;
     if (type === 'in' || type === 'out') where.type = type;
 
-    // фильтр по товару (через relation item.code)
     if (itemCode) {
       where.item = { code: itemCode };
     }
@@ -327,7 +433,7 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
     });
 
     const rows = ops.map(op => ({
-      ts: op.ts, // bigint -> json replacer превратит в string
+      ts: op.ts,
       time: op.time,
       objectId: op.objectId,
       objectName: op.object?.name || 'Объект',
@@ -343,8 +449,6 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
     next(e);
   }
 });
-
-// --- REPORT (если у тебя уже есть фильтр type — оставь как есть; здесь не трогаем) ---
 
 /* ===========================
    TRANSFERS
@@ -376,7 +480,6 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
       const toObj = await tx.object.findUnique({ where: { id: toObjectId } });
       if (!toObj) return { err: { status: 404, error: 'to-object-not-found' } };
 
-      // ✅ учитываем уже отправленные pending, чтобы не “перепродать” остаток
       const pendingAgg = await tx.transfer.aggregate({
         where: {
           fromObjectId: u.objectId,
@@ -414,7 +517,6 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
   }
 });
 
-// входящие pending (user) — ✅ отдаём fromObject.name
 app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -446,7 +548,6 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
   }
 });
 
-// исходящие (user) — можно, чтобы показывать “в ожидании”
 app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -478,8 +579,6 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
   }
 });
 
-// принять (user — получатель)
-// ✅ именно тут: списать у отправителя + приход на получателя + операции
 app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -497,7 +596,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       const fromObj = await tx.object.findUnique({ where: { id: tr.fromObjectId } });
       const toObj = await tx.object.findUnique({ where: { id: tr.toObjectId } });
 
-      // 1) списать у отправителя (по code)
       const senderItem = await tx.item.findUnique({
         where: { objectId_code: { objectId: tr.fromObjectId, code: tr.code } }
       });
@@ -509,7 +607,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         data: { quantity: senderItem.quantity - tr.qty }
       });
 
-      // операция OUT у отправителя
       await tx.operation.create({
         data: {
           type: 'out',
@@ -523,7 +620,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         }
       });
 
-      // 2) приход у получателя
       const receiverItem = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
         update: { name: tr.name, quantity: { increment: tr.qty } },
@@ -543,7 +639,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         }
       });
 
-      // 3) обновить transfer
       const updated = await tx.transfer.update({
         where: { id },
         data: {
@@ -565,7 +660,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
   }
 });
 
-// отклонить (user — получатель) — ✅ ничего не меняем в остатках
 app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;

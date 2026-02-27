@@ -176,10 +176,42 @@ async function rejectTransfer(id) {
   }
 }
 
+/* ===========================
+   ADMIN (NEW)
+   =========================== */
+
+async function getUsers() {
+  try {
+    const r = await api('/api/admin/users');
+    return { ok: true, users: r.users || [] };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
+async function adminCreateObject({ name }) {
+  try {
+    const r = await api('/api/admin/objects', { method: 'POST', body: { name } });
+    _objects = []; // сбрасываем кеш
+    return { ok: true, object: r.object };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
+async function adminCreateUser({ login, password, role = 'user', objectId = null }) {
+  try {
+    const r = await api('/api/admin/users', {
+      method: 'POST',
+      body: { login, password, role, objectId }
+    });
+    return { ok: true, user: r.user };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
 // stubs (пока не реализовано)
-function getUsers() { return []; }
-async function adminCreateObject() { return { ok: false, error: 'not-implemented' }; }
-async function adminCreateUser() { return { ok: false, error: 'not-implemented' }; }
 async function changePassword() { return false; }
 async function deleteItem() { return false; }
 
@@ -207,10 +239,12 @@ window.store = {
   acceptTransfer,
   rejectTransfer,
 
-  // stubs
+  // admin
   getUsers,
   adminCreateObject,
   adminCreateUser,
+
+  // stubs
   changePassword,
   deleteItem
 };

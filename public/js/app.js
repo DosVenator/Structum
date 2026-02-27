@@ -56,6 +56,16 @@ function splashHide(){
 
 /* страховка — если что-то зависло */
 setTimeout(() => splashHide(), 8000);
+
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 // ================================
 // Modals: history
 // ================================
@@ -91,7 +101,6 @@ async function openHistory(itemId){
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  // UI фильтр в модалке
   hBody.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px">
       <div style="flex:1;min-width:140px">
@@ -160,11 +169,9 @@ async function openHistory(itemId){
     }
   }
 
-  // кнопка применить
   const hApply = document.getElementById('hApply');
   if (hApply) hApply.onclick = load;
 
-  // автозагрузка дефолта
   await load();
 }
 
@@ -225,7 +232,7 @@ wSave.onclick = async () => {
 };
 
 // ================================
-// Transfers UI (ВКЛЮЧЕНО)
+// Transfers UI
 // ================================
 const transferModal = document.getElementById('transferModal');
 const incomingModal = document.getElementById('incomingModal');
@@ -274,11 +281,8 @@ async function updateTransferBadge(){
 
   if (!transferBadge) return;
   if (nTotal > 0) {
-    // показываем общий pending, чтобы отправитель тоже видел
     transferBadge.textContent = String(nTotal);
     transferBadge.classList.remove('hidden');
-
-    // подсказка на hover (полезно)
     transferBadge.title = `Входящие: ${nIn}, Исходящие: ${nOut}`;
   } else {
     transferBadge.classList.add('hidden');
@@ -288,11 +292,6 @@ async function updateTransferBadge(){
 async function openTransferModal(itemId){
   const u = await store.currentUserObj();
   if (!u || u.role !== 'user') return;
-
-  if (!store.createTransfer) {
-    appToast('Передачи ещё не подключены в store.js');
-    return;
-  }
 
   transferItemId = itemId;
   const item = store.getItem(itemId);
@@ -386,7 +385,6 @@ async function openIncomingTransfers() {
 
   incomingList.innerHTML = '';
 
-  // --- INCOMING ---
   const headIn = document.createElement('li');
   headIn.innerHTML = `<b>📥 Входящие (ожидают)</b>`;
   incomingList.appendChild(headIn);
@@ -415,12 +413,10 @@ async function openIncomingTransfers() {
     });
   }
 
-  // divider
   const hr = document.createElement('li');
   hr.innerHTML = `<div style="height:1px;background:rgba(255,255,255,.08);margin:6px 0"></div>`;
   incomingList.appendChild(hr);
 
-  // --- OUTGOING ---
   const headOut = document.createElement('li');
   headOut.innerHTML = `<b>📤 Исходящие (ожидают подтверждения)</b>`;
   incomingList.appendChild(headOut);
@@ -445,7 +441,6 @@ async function openIncomingTransfers() {
     });
   }
 
-  // bind actions incoming accept/reject
   incomingList.querySelectorAll('[data-accept]').forEach(btn => {
     btn.onclick = async () => {
       btn.disabled = true;
@@ -484,8 +479,9 @@ if (transferBtn) {
     await openIncomingTransfers();
   };
 }
+
 // ================================
-// Admin panel (CRUD пока выключен)
+// Admin panel (CRUD включаем)
 // ================================
 const objectsList = document.getElementById('objectsList');
 const usersList   = document.getElementById('usersList');
@@ -497,9 +493,141 @@ const objError = document.getElementById('objError');
 const objSave  = document.getElementById('objSave');
 const objCancel= document.getElementById('objCancel');
 
-if (openAddObject) openAddObject.onclick = () => soon('Создание объекта — скоро');
-if (objCancel) objCancel.onclick = () => addObjectModal?.classList.add('hidden');
-if (objSave) objSave.onclick = () => soon('Создание объекта — скоро');
+const addUserModal = document.getElementById('addUserModal');
+const openAddUser  = document.getElementById('openAddUser');
+const uLogin = document.getElementById('uLogin');
+const uObject= document.getElementById('uObject');
+const uPass  = document.getElementById('uPass');
+const uError = document.getElementById('uError');
+const uSave  = document.getElementById('uSave');
+const uCancel= document.getElementById('uCancel');
+
+async function renderAdminUsers(){
+  if (!usersList) return;
+
+  const r = await store.getUsers();
+  if (!r.ok) {
+    usersList.innerHTML = `<li><span class="muted">Ошибка загрузки пользователей</span></li>`;
+    return;
+  }
+
+  const users = r.users || [];
+  if (!users.length) {
+    usersList.innerHTML = `<li><span class="muted">Пользователей нет</span></li>`;
+    return;
+  }
+
+  usersList.innerHTML = '';
+  users.forEach(u => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span>👤 ${escapeHtml(u.login)} <span class="muted">(${escapeHtml(u.role)})</span></span>
+      <span class="muted">${escapeHtml(u.objectName || '—')}</span>
+    `;
+    usersList.appendChild(li);
+  });
+}
+
+// --- Object modal ---
+if (openAddObject) openAddObject.onclick = async () => {
+  if (!addObjectModal) return;
+  objName.value = '';
+  objError.textContent = '';
+  addObjectModal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+};
+
+if (objCancel) objCancel.onclick = () => {
+  addObjectModal?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+};
+
+if (objSave) objSave.onclick = async () => {
+  objError.textContent = '';
+  const name = (objName.value || '').trim();
+  if (!name) { objError.textContent = 'Введите название'; return; }
+
+  objSave.disabled = true;
+  try {
+    const r = await store.adminCreateObject({ name });
+    if (!r.ok) {
+      const msg =
+        r.error === 'object-exists' ? 'Такой склад уже существует' :
+        r.error === 'name-required' ? 'Название обязательно' :
+        `Ошибка: ${r.status || ''} ${r.error || ''}`;
+      objError.textContent = msg.trim();
+      return;
+    }
+
+    addObjectModal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+
+    await store.getObjects();
+    await initAdminObjectSelect();
+    renderAdmin();
+    appToast('✅ Склад создан');
+  } finally {
+    objSave.disabled = false;
+  }
+};
+
+// --- User modal ---
+if (openAddUser) openAddUser.onclick = async () => {
+  if (!addUserModal) return;
+
+  uLogin.value = '';
+  uPass.value = '';
+  uError.textContent = '';
+
+  const objs = await store.getObjects();
+  if (uObject) {
+    uObject.innerHTML =
+      `<option value="">Выберите склад</option>` +
+      (objs || []).map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
+  }
+
+  addUserModal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+};
+
+if (uCancel) uCancel.onclick = () => {
+  addUserModal?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+};
+
+if (uSave) uSave.onclick = async () => {
+  uError.textContent = '';
+
+  const login = (uLogin.value || '').trim();
+  const password = String(uPass.value || '');
+  const objectId = uObject?.value || '';
+
+  if (!login) { uError.textContent = 'Введите логин'; return; }
+  if (!password || password.length < 4) { uError.textContent = 'Пароль минимум 4 символа'; return; }
+  if (!objectId) { uError.textContent = 'Выберите склад'; return; }
+
+  uSave.disabled = true;
+  try {
+    const r = await store.adminCreateUser({ login, password, role: 'user', objectId });
+    if (!r.ok) {
+      const msg =
+        r.error === 'login-exists' ? 'Логин уже занят' :
+        r.error === 'object-not-found' ? 'Склад не найден' :
+        r.error === 'weak-password' ? 'Слишком простой пароль' :
+        `Ошибка: ${r.status || ''} ${r.error || ''}`;
+      uError.textContent = msg.trim();
+      return;
+    }
+
+    addUserModal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+
+    appToast('✅ Пользователь создан (попросит смену пароля)');
+    await renderAdminUsers();
+  } finally {
+    uSave.disabled = false;
+  }
+};
 
 // Confirm modal (для удаления) — пока deleteItem заглушка
 const confirmModal = document.getElementById('confirmModal');
@@ -526,20 +654,6 @@ if (cYes) cYes.onclick = () => {
   if (typeof confirmAction === 'function') confirmAction();
   closeConfirm();
 };
-
-// add user (пока выключено)
-const addUserModal = document.getElementById('addUserModal');
-const openAddUser  = document.getElementById('openAddUser');
-const uLogin = document.getElementById('uLogin');
-const uObject= document.getElementById('uObject');
-const uPass  = document.getElementById('uPass');
-const uError = document.getElementById('uError');
-const uSave  = document.getElementById('uSave');
-const uCancel= document.getElementById('uCancel');
-
-if (openAddUser) openAddUser.onclick = () => soon('Создание пользователя — скоро');
-if (uCancel) uCancel.onclick = () => addUserModal?.classList.add('hidden');
-if (uSave) uSave.onclick = () => soon('Создание пользователя — скоро');
 
 // ================================
 // Password change modal (пока выключено)
@@ -617,7 +731,7 @@ const rBuild = document.getElementById('rBuild');
 const rError = document.getElementById('rError');
 const rTableWrap = document.getElementById('rTableWrap');
 
-// ✅ ВАЖНО: оставляем ОДИН обработчик (без дублей onchange ниже)
+// ✅ один обработчик radio
 document.querySelectorAll('input[name="rMode"]').forEach(el => {
   el.addEventListener('change', () => {
     if (rModeOne.checked) rItemWrap.classList.remove('hidden');
@@ -672,15 +786,6 @@ function closeReportModal(){
   document.body.classList.remove('modal-open');
 }
 
-function escapeHtml(s) {
-  return String(s ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
 async function fillReportItemSelect(){
   const objectId = rObject.value || 'all';
 
@@ -702,10 +807,6 @@ async function fillReportItemSelect(){
 }
 
 if (rObject) rObject.onchange = async () => { await fillReportItemSelect(); };
-
-// ❌ УБРАНО: старые rModeAll.onchange / rModeOne.onchange, потому что они дублируют обработчик выше
-// if (rModeAll) rModeAll.onchange = ...
-// if (rModeOne) rModeOne.onchange = ...
 
 if (rClose) rClose.onclick = closeReportModal;
 if (reportModal) {
@@ -730,9 +831,9 @@ if (rBuild) {
     if (toTs < fromTs) { rError.textContent = 'Конечная дата меньше начальной'; return; }
 
     const itemCode = rModeOne.checked ? (rItem.value || '') : '';
-const type = rType ? (rType.value || 'all') : 'all';
+    const type = rType ? (rType.value || 'all') : 'all';
 
-const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode, type });
+    const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode, type });
     if (!res.ok) { rError.textContent = `Ошибка формирования отчёта: ${res.error || 'server'}`; return; }
 
     const rows = res.rows || [];
@@ -774,15 +875,15 @@ const res = await store.adminGetReport({ objectId, fromTs, toTs, itemCode, type 
               const typeLabel = r.type === 'in' ? 'Приход' : 'Расход';
               const sign = r.type === 'in' ? '+' : '-';
               return `
-  <tr>
-    <td data-label="Дата">${escapeHtml(r.time)}</td>
-    <td data-label="Объект">${escapeHtml(r.objectName)}</td>
-    <td data-label="Товар">${escapeHtml(r.itemName)}</td>
-    <td data-label="Тип">${typeLabel}</td>
-    <td data-label="Кол-во"><b>${sign}${r.qty}</b></td>
-    <td data-label="Откуда/Куда">${escapeHtml(r.from)}</td>
-  </tr>
-`;
+                <tr>
+                  <td data-label="Дата">${escapeHtml(r.time)}</td>
+                  <td data-label="Объект">${escapeHtml(r.objectName)}</td>
+                  <td data-label="Товар">${escapeHtml(r.itemName)}</td>
+                  <td data-label="Тип">${typeLabel}</td>
+                  <td data-label="Кол-во"><b>${sign}${r.qty}</b></td>
+                  <td data-label="Откуда/Куда">${escapeHtml(r.from)}</td>
+                </tr>
+              `;
             }).join('')}
           </tbody>
         </table>
@@ -850,6 +951,7 @@ async function afterLogin(){
     if (transferBtn) transferBtn.classList.add('hidden');
 
     await initAdminObjectSelect();
+    await renderAdminUsers();
   } else {
     userControls.classList.remove('hidden');
     adminPanel.classList.add('hidden');
@@ -857,18 +959,20 @@ async function afterLogin(){
   }
 
   await updateTransferBadge();
-  // авто-обновление бейджа каждые 20 сек (pending вход/выход)
-if (window.__transferBadgeTimer) clearInterval(window.__transferBadgeTimer);
-window.__transferBadgeTimer = setInterval(() => {
-  updateTransferBadge().catch(() => {});
-}, 20000);
+
+  if (window.__transferBadgeTimer) clearInterval(window.__transferBadgeTimer);
+  window.__transferBadgeTimer = setInterval(() => {
+    updateTransferBadge().catch(() => {});
+  }, 20000);
+
   await renderList(searchInput.value);
   renderAdmin();
 }
 
 function renderAdmin(){
-  objectsList.innerHTML = '';
   if (!objectsList || !usersList) return;
+
+  objectsList.innerHTML = '';
 
   const list = [];
   if (adminObjectSelect && adminObjectSelect.options.length) {
@@ -884,7 +988,7 @@ function renderAdmin(){
     objectsList.appendChild(li);
   });
 
-  usersList.innerHTML = `<li><span class="muted">Пользователи (API) — скоро</span></li>`;
+  // usersList рендерится отдельно через renderAdminUsers()
 }
 
 // ================================
@@ -947,7 +1051,6 @@ async function renderList(filter=''){
     listEl.appendChild(li);
   });
 
-  // bind actions
   listEl.querySelectorAll('[data-h]').forEach(btn =>
     btn.onclick = async () => await openHistory(btn.getAttribute('data-h'))
   );
@@ -958,7 +1061,6 @@ async function renderList(filter=''){
     btn.onclick = async () => await openTransferModal(btn.getAttribute('data-t'))
   );
 
-  // delete пока нет API
   listEl.querySelectorAll('[data-d]').forEach(btn => btn.onclick = () => {
     const id = btn.getAttribute('data-d');
     const item = store.getItem(id);
@@ -980,7 +1082,6 @@ async function renderList(filter=''){
 
 window.renderList = renderList;
 
-// search
 searchInput.addEventListener('input', async (e) => {
   await renderList(e.target.value);
 });
