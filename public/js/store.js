@@ -94,8 +94,16 @@ async function addOperation({ code, name, qty, from, type }) {
   }
 }
 
-async function getHistory(itemId) {
-  const r = await api(`/api/items/${encodeURIComponent(itemId)}/history`);
+async function getHistory(itemId, { fromTs, toTs } = {}) {
+  const qs = new URLSearchParams();
+  if (fromTs !== undefined) qs.set('fromTs', String(fromTs));
+  if (toTs !== undefined) qs.set('toTs', String(toTs));
+
+  const url =
+    `/api/items/${encodeURIComponent(itemId)}/history` +
+    (qs.toString() ? `?${qs.toString()}` : '');
+
+  const r = await api(url);
   return r.history || [];
 }
 

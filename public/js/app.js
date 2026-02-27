@@ -45,30 +45,106 @@ const hClose = document.getElementById('hClose');
 
 hClose.onclick = () => historyModal.classList.add('hidden');
 
+function ymdLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function ymdToStartTs(ymd){
+  const [y,m,d] = ymd.split('-').map(Number);
+  return new Date(y, m-1, d, 0,0,0,0).getTime();
+}
+function ymdToEndTs(ymd){
+  const [y,m,d] = ymd.split('-').map(Number);
+  return new Date(y, m-1, d, 23,59,59,999).getTime();
+}
+
 async function openHistory(itemId){
   const item = store.getItem(itemId);
   if (!item) return;
 
   hTitle.textContent = `📜 История — ${item.name}`;
-  hBody.innerHTML = `<div class="muted">Загрузка…</div>`;
+
+  // ✅ дефолт: 7 дней
+  const to = new Date();
+  const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // UI фильтр в модалке
+  hBody.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px">
+      <div style="flex:1;min-width:140px">
+        <label style="margin:0 0 6px">С</label>
+        <input id="hFrom" type="date" value="${ymdLocal(from)}">
+      </div>
+      <div style="flex:1;min-width:140px">
+        <label style="margin:0 0 6px">По</label>
+        <input id="hTo" type="date" value="${ymdLocal(to)}">
+      </div>
+      <div style="min-width:160px">
+        <button class="btn btn-secondary w100" id="hApply">Показать</button>
+      </div>
+    </div>
+
+    <div class="history-body" id="hList">
+      <div class="muted">Загрузка…</div>
+    </div>
+  `;
+
   historyModal.classList.remove('hidden');
 
-  try {
-    const ops = await store.getHistory(itemId);
+  async function load(){
+    const hFrom = document.getElementById('hFrom');
+    const hTo = document.getElementById('hTo');
+    const hList = document.getElementById('hList');
 
-    hBody.innerHTML = ops.length
-      ? ops.map(o => {
-          const sign = o.type === 'in' ? '+' : '-';
-          return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)">
-                    <div><b>${sign}${o.qty}</b> <span class="muted">| ${o.from}</span></div>
-                    <div class="muted" style="font-size:13px">${o.time}</div>
-                  </div>`;
-        }).join('')
-      : `<div class="muted">Пока нет операций</div>`;
-  } catch (e) {
-    console.error(e);
-    hBody.innerHTML = `<div class="muted">Ошибка загрузки истории</div>`;
+    const fromYmd = hFrom?.value;
+    const toYmd = hTo?.value;
+
+    if (!fromYmd || !toYmd) {
+      hList.innerHTML = `<div class="muted">Выберите даты</div>`;
+      return;
+    }
+
+    const fromTs = ymdToStartTs(fromYmd);
+    const toTs = ymdToEndTs(toYmd);
+    if (toTs < fromTs) {
+      hList.innerHTML = `<div class="muted">Конечная дата меньше начальной</div>`;
+      return;
+    }
+
+    hList.innerHTML = `<div class="muted">Загрузка…</div>`;
+
+    try {
+      const ops = await store.getHistory(itemId, { fromTs, toTs });
+
+      hList.innerHTML = ops.length
+        ? ops.map(o => {
+            const sign = o.type === 'in' ? '+' : '-';
+            const typeLabel = o.type === 'in' ? 'Приход' : 'Расход';
+            return `
+              <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)">
+                <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                  <div><b>${sign}${o.qty}</b> <span class="muted">| ${escapeHtml(o.from)}</span></div>
+                  <div class="muted">${typeLabel}</div>
+                </div>
+                <div class="muted" style="font-size:13px">${escapeHtml(o.time)}</div>
+              </div>
+            `;
+          }).join('')
+        : `<div class="muted">Нет операций за выбранный период</div>`;
+    } catch (e) {
+      console.error(e);
+      hList.innerHTML = `<div class="muted">Ошибка загрузки истории</div>`;
+    }
   }
+
+  // кнопка применить
+  const hApply = document.getElementById('hApply');
+  if (hApply) hApply.onclick = load;
+
+  // автозагрузка дефолта
+  await load();
 }
 
 // ================================

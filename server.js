@@ -188,12 +188,23 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
     const u = req.session.user;
     const id = String(req.params.id);
 
+    // ✅ период: по умолчанию 7 дней
+    const nowMs = Date.now();
+    const defaultFrom = nowMs - 7 * 24 * 60 * 60 * 1000;
+
+    const fromTsNum = req.query.fromTs !== undefined ? Number(req.query.fromTs) : defaultFrom;
+    const toTsNum   = req.query.toTs   !== undefined ? Number(req.query.toTs)   : nowMs;
+
+    if (!Number.isFinite(fromTsNum) || !Number.isFinite(toTsNum)) {
+      return res.status(400).json({ ok: false, error: 'bad-ts' });
+    }
+
+    const fromTs = BigInt(Math.max(0, Math.floor(fromTsNum)));
+    const toTs   = BigInt(Math.max(0, Math.floor(toTsNum)));
+
     const item = await prisma.item.findUnique({
       where: { id },
-      include: {
-        object: true,
-        operations: { orderBy: { ts: 'desc' }, take: 200 }
-      }
+      include: { object: true }
     });
 
     if (!item) return res.status(404).json({ ok: false, error: 'not-found' });
@@ -202,7 +213,17 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
       return res.status(403).json({ ok: false, error: 'forbidden' });
     }
 
-    const history = item.operations.map((op) => ({
+    // ✅ берём операции ТОЛЬКО за период
+    const ops = await prisma.operation.findMany({
+      where: {
+        itemId: id,
+        ts: { gte: fromTs, lte: toTs }
+      },
+      orderBy: { ts: 'desc' },
+      take: 500 // защита от огромных выборок
+    });
+
+    const history = ops.map(op => ({
       type: op.type,
       qty: op.qty,
       from: op.from,
