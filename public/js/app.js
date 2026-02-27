@@ -500,6 +500,94 @@ if (transferBtn) {
 // ================================
 const objectsList = document.getElementById('objectsList');
 const usersList   = document.getElementById('usersList');
+// ✅ EVENT DELEGATION: удаление объектов (всегда работает, даже после перерендера)
+if (objectsList) {
+  objectsList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-del-obj]');
+    if (!btn) return;
+
+    const id = btn.getAttribute('data-del-obj');
+    const name = store.getObjectById(id)?.name || 'Склад';
+
+    openConfirm({
+      title: 'Удалить склад?',
+      text: `Склад "${name}" будет деактивирован (и все пользователи этого склада тоже). Продолжить?`,
+      yesText: 'Да',
+      onYes: () => {
+        openConfirm({
+          title: 'Точно удалить?',
+          text: `Подтвердите удаление склада "${name}".`,
+          yesText: 'Удалить',
+          onYes: async () => {
+            // ✅ UX: сразу убираем из UI
+            const li = btn.closest('li');
+            if (li) li.remove();
+
+            const r = await store.adminDeleteObject(id);
+            if (!r.ok) {
+              appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+              // откатимся к актуальному состоянию
+              await store.getObjects();
+              await initAdminObjectSelect();
+              renderAdmin();
+              await renderAdminUsers();
+              return;
+            }
+
+            appToast('✅ Склад удалён');
+            await store.getObjects();
+            await initAdminObjectSelect();
+            renderAdmin();
+            await renderAdminUsers();
+          }
+        });
+      }
+    });
+  });
+}
+
+// ✅ EVENT DELEGATION: удаление пользователей (всегда работает, даже после перерендера)
+if (usersList) {
+  usersList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-del-user]');
+    if (!btn) return;
+
+    const id = btn.getAttribute('data-del-user');
+
+    openConfirm({
+      title: 'Удалить пользователя?',
+      text: 'Пользователь будет деактивирован и не сможет войти. Продолжить?',
+      yesText: 'Да',
+      onYes: () => {
+        openConfirm({
+          title: 'Точно удалить?',
+          text: 'Подтвердите удаление пользователя.',
+          yesText: 'Удалить',
+          onYes: async () => {
+            // ✅ UX: сразу убираем из UI
+            const li = btn.closest('li');
+            if (li) li.remove();
+
+            const r = await store.adminDeleteUser(id);
+            if (!r.ok) {
+              const msg =
+                r.error === 'cannot-delete-self'
+                  ? 'Нельзя удалить себя'
+                  : `Ошибка: ${r.status || ''} ${r.error || ''}`;
+              appToast(msg.trim());
+
+              await renderAdminUsers();
+              return;
+            }
+
+            appToast('✅ Пользователь удалён');
+            await renderAdminUsers();
+          }
+        });
+      }
+    });
+  });
+}
 
 const addObjectModal = document.getElementById('addObjectModal');
 const openAddObject  = document.getElementById('openAddObject');
@@ -556,44 +644,44 @@ async function renderAdminUsers(){
     usersList.appendChild(li);
   });
 
-  usersList.querySelectorAll('[data-del-user]').forEach(btn => {
-    btn.onclick = async () => {
-      const id = btn.getAttribute('data-del-user');
+  // usersList.querySelectorAll('[data-del-user]').forEach(btn => {
+  //   btn.onclick = async () => {
+  //     const id = btn.getAttribute('data-del-user');
 
-      openConfirm({
-        title: 'Удалить пользователя?',
-        text: `Пользователь будет деактивирован и не сможет войти. Продолжить?`,
-        yesText: 'Да',
-        onYes: () => {
-          openConfirm({
-            title: 'Точно удалить?',
-            text: `Подтвердите удаление пользователя.`,
-            yesText: 'Удалить',
-            onYes: async () => {
-              // ✅ моментально убираем из списка (без CSS.escape, чтобы нигде не падало)
-              removeListRowByDataset(usersList, 'userId', id);
+  //     openConfirm({
+  //       title: 'Удалить пользователя?',
+  //       text: `Пользователь будет деактивирован и не сможет войти. Продолжить?`,
+  //       yesText: 'Да',
+  //       onYes: () => {
+  //         openConfirm({
+  //           title: 'Точно удалить?',
+  //           text: `Подтвердите удаление пользователя.`,
+  //           yesText: 'Удалить',
+  //           onYes: async () => {
+  //             // ✅ моментально убираем из списка (без CSS.escape, чтобы нигде не падало)
+  //             removeListRowByDataset(usersList, 'userId', id);
 
-              const resp = await store.adminDeleteUser(id);
-              if (!resp.ok) {
-                const msg =
-                  resp.error === 'cannot-delete-self'
-                    ? 'Нельзя удалить себя'
-                    : `Ошибка: ${resp.status || ''} ${resp.error || ''}`;
-                appToast(msg.trim());
+  //             const resp = await store.adminDeleteUser(id);
+  //             if (!resp.ok) {
+  //               const msg =
+  //                 resp.error === 'cannot-delete-self'
+  //                   ? 'Нельзя удалить себя'
+  //                   : `Ошибка: ${resp.status || ''} ${resp.error || ''}`;
+  //               appToast(msg.trim());
 
-                // ✅ откат/синхронизация
-                await renderAdminUsers();
-                return;
-              }
+  //               // ✅ откат/синхронизация
+  //               await renderAdminUsers();
+  //               return;
+  //             }
 
-              appToast('✅ Пользователь удалён');
-              await renderAdminUsers(); // ✅ финальная синхронизация
-            }
-          });
-        }
-      });
-    };
-  });
+  //             appToast('✅ Пользователь удалён');
+  //             await renderAdminUsers(); // ✅ финальная синхронизация
+  //           }
+  //         });
+  //       }
+  //     });
+  //   };
+  // });
 }
 
 // --- Object modal ---
@@ -1090,48 +1178,48 @@ function renderAdmin(){
     objectsList.appendChild(li);
   });
 
-  objectsList.querySelectorAll('[data-del-obj]').forEach(btn => {
-    btn.onclick = async () => {
-      const id = btn.getAttribute('data-del-obj');
-      const name = store.getObjectById(id)?.name || 'Склад';
+  // objectsList.querySelectorAll('[data-del-obj]').forEach(btn => {
+  //   btn.onclick = async () => {
+  //     const id = btn.getAttribute('data-del-obj');
+  //     const name = store.getObjectById(id)?.name || 'Склад';
 
-      openConfirm({
-        title: 'Удалить склад?',
-        text: `Склад "${name}" будет деактивирован (и все пользователи этого склада тоже). Продолжить?`,
-        yesText: 'Да',
-        onYes: () => {
-          openConfirm({
-            title: 'Точно удалить?',
-            text: `Подтвердите удаление склада "${name}".`,
-            yesText: 'Удалить',
-            onYes: async () => {
-              // ✅ моментально убираем из списка (UX)
-              removeListRowByDataset(objectsList, 'objectId', id);
+  //     openConfirm({
+  //       title: 'Удалить склад?',
+  //       text: `Склад "${name}" будет деактивирован (и все пользователи этого склада тоже). Продолжить?`,
+  //       yesText: 'Да',
+  //       onYes: () => {
+  //         openConfirm({
+  //           title: 'Точно удалить?',
+  //           text: `Подтвердите удаление склада "${name}".`,
+  //           yesText: 'Удалить',
+  //           onYes: async () => {
+  //             // ✅ моментально убираем из списка (UX)
+  //             removeListRowByDataset(objectsList, 'objectId', id);
 
-              const r = await store.adminDeleteObject(id);
-              if (!r.ok) {
-                appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+  //             const r = await store.adminDeleteObject(id);
+  //             if (!r.ok) {
+  //               appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
 
-                // ✅ откат/синхронизация
-                await store.getObjects();
-                await initAdminObjectSelect();
-                renderAdmin();
-                await renderAdminUsers();
-                return;
-              }
+  //               // ✅ откат/синхронизация
+  //               await store.getObjects();
+  //               await initAdminObjectSelect();
+  //               renderAdmin();
+  //               await renderAdminUsers();
+  //               return;
+  //             }
 
-              appToast('✅ Склад удалён');
+  //             appToast('✅ Склад удалён');
 
-              await store.getObjects();
-              await initAdminObjectSelect();
-              renderAdmin();
-              await renderAdminUsers();
-            }
-          });
-        }
-      });
-    };
-  });
+  //             await store.getObjects();
+  //             await initAdminObjectSelect();
+  //             renderAdmin();
+  //             await renderAdminUsers();
+  //           }
+  //         });
+  //       }
+  //     });
+  //   };
+  // });
 }
 
 // ================================
