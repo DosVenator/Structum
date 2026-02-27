@@ -256,11 +256,17 @@ app.delete('/api/admin/objects/:id', requireAuth, requireAdmin, async (req, res,
 // список пользователей (без passwordHash)
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const users = await prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-      include: { object: { select: { id: true, name: true } } }
-    });
+    const meId = req.session.user.id;
+
+const users = await prisma.user.findMany({
+  where: {
+    active: true,
+    NOT: { id: meId }          // ✅ не отдаём текущего админа
+  },
+  orderBy: { createdAt: 'desc' },
+  take: 500,
+  include: { object: { select: { id: true, name: true } } }
+});
 
     const safe = users.map(u => ({
       id: u.id,

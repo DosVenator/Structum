@@ -505,13 +505,17 @@ const uCancel= document.getElementById('uCancel');
 async function renderAdminUsers(){
   if (!usersList) return;
 
+  const me = await store.currentUserObj();
   const r = await store.getUsers();
   if (!r.ok) {
     usersList.innerHTML = `<li><span class="muted">Ошибка загрузки пользователей</span></li>`;
     return;
   }
 
-  const users = r.users || [];
+  const users = (r.users || [])
+    .filter(u => u.active)          // ✅ скрываем удалённых
+    .filter(u => u.id !== me?.id);  // ✅ скрываем админа (себя)
+
   if (!users.length) {
     usersList.innerHTML = `<li><span class="muted">Пользователей нет</span></li>`;
     return;
@@ -521,13 +525,11 @@ async function renderAdminUsers(){
   users.forEach(u => {
     const li = document.createElement('li');
 
-    const status = u.active ? '' : ' <span class="muted">(удалён)</span>';
-
     li.innerHTML = `
-      <span>👤 ${escapeHtml(u.login)} <span class="muted">(${escapeHtml(u.role)})</span>${status}</span>
+      <span>👤 ${escapeHtml(u.login)} <span class="muted">(${escapeHtml(u.role)})</span></span>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="muted">${escapeHtml(u.objectName || '—')}</span>
-        ${u.active ? `<button class="btn btn-danger" style="padding:8px 10px" data-del-user="${u.id}">🗑</button>` : ''}
+        <button class="btn btn-danger" style="padding:8px 10px" data-del-user="${u.id}">🗑</button>
       </div>
     `;
 
@@ -558,7 +560,7 @@ async function renderAdminUsers(){
                 return;
               }
               appToast('✅ Пользователь удалён');
-              await renderAdminUsers();
+              await renderAdminUsers(); // ✅ перерисовали — пользователь исчез
             }
           });
         }
@@ -1051,7 +1053,6 @@ function renderAdmin(){
     li.innerHTML = `
       <span>📦 ${escapeHtml(o.name)}</span>
       <div style="display:flex;gap:8px;align-items:center">
-        <span class="muted">id: ${String(o.id).slice(0,6)}…</span>
         <button class="btn btn-danger" style="padding:8px 10px" data-del-obj="${o.id}">🗑</button>
       </div>
     `;
@@ -1090,7 +1091,6 @@ function renderAdmin(){
     };
   });
 }
-
 // ================================
 // List render
 // ================================
