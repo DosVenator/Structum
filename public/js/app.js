@@ -66,6 +66,21 @@ function escapeHtml(s) {
     .replaceAll("'", '&#039;');
 }
 
+/* ===========================
+   ✅ Helpers: safe DOM remove
+   =========================== */
+function removeListRowByDataset(listNode, datasetKey, id) {
+  if (!listNode || !id) return false;
+  const rows = listNode.querySelectorAll('li');
+  for (const li of rows) {
+    if (li?.dataset?.[datasetKey] === id) {
+      li.remove();
+      return true;
+    }
+  }
+  return false;
+}
+
 // ================================
 // Modals: history
 // ================================
@@ -555,27 +570,24 @@ async function renderAdminUsers(){
             text: `Подтвердите удаление пользователя.`,
             yesText: 'Удалить',
             onYes: async () => {
-              // ✅ моментально убираем из списка (UX)
-              const li = usersList.querySelector(`li[data-user-id="${CSS.escape(id)}"]`);
-              if (li) li.remove();
+              // ✅ моментально убираем из списка (без CSS.escape, чтобы нигде не падало)
+              removeListRowByDataset(usersList, 'userId', id);
 
               const resp = await store.adminDeleteUser(id);
               if (!resp.ok) {
-                // если ошибка — перерисуем обратно актуальный список
                 const msg =
                   resp.error === 'cannot-delete-self'
                     ? 'Нельзя удалить себя'
                     : `Ошибка: ${resp.status || ''} ${resp.error || ''}`;
                 appToast(msg.trim());
 
+                // ✅ откат/синхронизация
                 await renderAdminUsers();
                 return;
               }
 
               appToast('✅ Пользователь удалён');
-
-              // ✅ финальная синхронизация с сервером
-              await renderAdminUsers();
+              await renderAdminUsers(); // ✅ финальная синхронизация
             }
           });
         }
@@ -685,7 +697,7 @@ if (uSave) uSave.onclick = async () => {
   }
 };
 
-// Confirm modal (для удаления) — пока deleteItem заглушка
+// Confirm modal
 const confirmModal = document.getElementById('confirmModal');
 const cTitle = document.getElementById('cTitle');
 const cText  = document.getElementById('cText');
@@ -712,7 +724,7 @@ if (cYes) cYes.onclick = () => {
 };
 
 // ================================
-// Password change modal (пока выключено)
+// Password change modal
 // ================================
 const pwdModal = document.getElementById('pwdModal');
 const p1 = document.getElementById('p1');
@@ -752,8 +764,6 @@ if (pSave) {
 
       closePwdModal();
       appToast('✅ Пароль изменён');
-
-      // ✅ после смены пароля — нормальный вход в систему
       await afterLogin();
     } finally {
       pSave.disabled = false;
@@ -869,7 +879,6 @@ function closeReportModal(){
 
 async function fillReportItemSelect(){
   const objectId = rObject.value || 'all';
-
   const items = await store.getItems({ objectId });
 
   const map = new Map();
@@ -1063,8 +1072,15 @@ function renderAdmin(){
     }
   }
 
+  if (!list.length) {
+    objectsList.innerHTML = `<li><span class="muted">Складов нет</span></li>`;
+    return;
+  }
+
   list.forEach(o => {
     const li = document.createElement('li');
+    li.dataset.objectId = o.id;
+
     li.innerHTML = `
       <span>📦 ${escapeHtml(o.name)}</span>
       <div style="display:flex;gap:8px;align-items:center">
@@ -1089,12 +1105,23 @@ function renderAdmin(){
             text: `Подтвердите удаление склада "${name}".`,
             yesText: 'Удалить',
             onYes: async () => {
+              // ✅ моментально убираем из списка (UX)
+              removeListRowByDataset(objectsList, 'objectId', id);
+
               const r = await store.adminDeleteObject(id);
               if (!r.ok) {
                 appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+
+                // ✅ откат/синхронизация
+                await store.getObjects();
+                await initAdminObjectSelect();
+                renderAdmin();
+                await renderAdminUsers();
                 return;
               }
+
               appToast('✅ Склад удалён');
+
               await store.getObjects();
               await initAdminObjectSelect();
               renderAdmin();
@@ -1106,6 +1133,7 @@ function renderAdmin(){
     };
   });
 }
+
 // ================================
 // List render
 // ================================
