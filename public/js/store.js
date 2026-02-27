@@ -49,6 +49,16 @@ async function currentUserObj() {
   return _me;
 }
 
+async function changePassword(newPassword) {
+  try {
+    await api('/api/change-password', { method: 'POST', body: { newPassword: String(newPassword || '') } });
+    if (_me) _me.mustChangePassword = false;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
 // --- objects ---
 async function getObjects() {
   const r = await api('/api/objects');
@@ -177,7 +187,7 @@ async function rejectTransfer(id) {
 }
 
 /* ===========================
-   ADMIN (NEW)
+   ADMIN
    =========================== */
 
 async function getUsers() {
@@ -192,8 +202,18 @@ async function getUsers() {
 async function adminCreateObject({ name }) {
   try {
     const r = await api('/api/admin/objects', { method: 'POST', body: { name } });
-    _objects = []; // сбрасываем кеш
+    _objects = [];
     return { ok: true, object: r.object };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
+async function adminDeleteObject(id) {
+  try {
+    await api(`/api/admin/objects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    _objects = [];
+    return { ok: true };
   } catch (e) {
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
@@ -211,14 +231,23 @@ async function adminCreateUser({ login, password, role = 'user', objectId = null
   }
 }
 
-// stubs (пока не реализовано)
-async function changePassword() { return false; }
+async function adminDeleteUser(id) {
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
+// stubs
 async function deleteItem() { return false; }
 
 window.store = {
   loginUser,
   logout,
   currentUserObj,
+  changePassword,
 
   getObjects,
   getObjectById,
@@ -242,9 +271,10 @@ window.store = {
   // admin
   getUsers,
   adminCreateObject,
+  adminDeleteObject,
   adminCreateUser,
+  adminDeleteUser,
 
   // stubs
-  changePassword,
   deleteItem
 };

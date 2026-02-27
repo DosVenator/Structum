@@ -82,6 +82,16 @@ function requireUser(req, res, next) {
   next();
 }
 
+function cleanName(s) {
+  return String(s || '').trim();
+}
+function cleanLogin(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+function isStrongEnoughPassword(p) {
+  return String(p || '').length >= 4;
+}
+
 // ✅ Киевское время
 function kyivTimeString(date = new Date()) {
   return new Intl.DateTimeFormat('uk-UA', {
@@ -101,28 +111,19 @@ function nowMeta() {
   return { ts, time };
 }
 
-// --- admin helpers ---
-function cleanName(s) {
-  return String(s || '').trim();
-}
-function cleanLogin(s) {
-  return String(s || '').trim().toLowerCase().replace(/\s+/g, '');
-}
-function isStrongEnoughPassword(p) {
-  const s = String(p || '');
-  return s.length >= 4; // можешь поднять до 6/8
-}
-
 // --- AUTH ---
 app.post('/api/login', async (req, res, next) => {
   try {
-    const login = String(req.body.login || '').trim().toLowerCase();
+    const login = cleanLogin(req.body.login);
     const password = String(req.body.password || '').trim();
 
     if (!login || !password) return res.status(400).json({ ok: false, error: 'bad-request' });
 
     const user = await prisma.user.findUnique({ where: { login } });
     if (!user) return res.status(401).json({ ok: false, error: 'invalid' });
+
+    // ✅ если пользователь “удалён/деактивирован”
+    if (user.active === false) return res.status(403).json({ ok: false, error: 'inactive' });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ ok: false, error: 'invalid' });
@@ -163,10 +164,48 @@ app.get('/api/me', (req, res) => {
   res.json({ ok: true, user: req.session?.user || null });
 });
 
+/* ===========================
+   ✅ Change password (реально)
+   =========================== */
+// body: { newPassword }
+app.post('/api/change-password', requireAuth, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const newPassword = String(req.body.newPassword || '');
+
+    if (!isStrongEnoughPassword(newPassword)) {
+      return res.status(400).json({ ok: false, error: 'weak-password' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: u.id } });
+    if (!user) return res.status(404).json({ ok: false, error: 'not-found' });
+    if (user.active === false) return res.status(403).json({ ok: false, error: 'inactive' });
+
+    const hash = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { passwordHash: hash, mustChangePassword: false }
+    });
+
+    // ✅ обновляем сессию сразу
+    req.session.user.mustChangePassword = false;
+    req.session.save(() => {
+      res.json({ ok: true });
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // --- OBJECTS ---
 app.get('/api/objects', requireAuth, async (req, res, next) => {
   try {
-    const objects = await prisma.object.findMany({ orderBy: { name: 'asc' } });
+    // можно отдавать всем, но чтобы скрыть удалённые — фильтруем
+    const objects = await prisma.object.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' }
+    });
     res.json({ ok: true, objects });
   } catch (e) {
     next(e);
@@ -194,6 +233,26 @@ app.post('/api/admin/objects', requireAuth, requireAdmin, async (req, res, next)
   }
 });
 
+// ✅ “удалить” склад = deactivate
+app.delete('/api/admin/objects/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+
+    const obj = await prisma.object.findUnique({ where: { id } });
+    if (!obj) return res.status(404).json({ ok: false, error: 'not-found' });
+
+    // деактивируем склад + деактивируем пользователей этого склада
+    await prisma.$transaction(async (tx) => {
+      await tx.object.update({ where: { id }, data: { active: false } });
+      await tx.user.updateMany({ where: { objectId: id }, data: { active: false } });
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // список пользователей (без passwordHash)
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
   try {
@@ -210,6 +269,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =>
       objectId: u.objectId,
       objectName: u.object?.name || null,
       mustChangePassword: u.mustChangePassword,
+      active: u.active !== false,
       createdAt: u.createdAt
     }));
 
@@ -236,7 +296,7 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =
 
     if (role === 'user') {
       const obj = await prisma.object.findUnique({ where: { id: objectId } });
-      if (!obj) return res.status(404).json({ ok: false, error: 'object-not-found' });
+      if (!obj || obj.active === false) return res.status(404).json({ ok: false, error: 'object-not-found' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -247,7 +307,8 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =
         passwordHash,
         role,
         objectId,
-        mustChangePassword: true
+        mustChangePassword: true,
+        active: true
       }
     });
 
@@ -258,11 +319,34 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =
         login: created.login,
         role: created.role,
         objectId: created.objectId,
-        mustChangePassword: created.mustChangePassword
+        mustChangePassword: created.mustChangePassword,
+        active: created.active !== false
       }
     });
   } catch (e) {
     if (e?.code === 'P2002') return res.status(409).json({ ok: false, error: 'login-exists' });
+    next(e);
+  }
+});
+
+// ✅ “удалить” пользователя = deactivate
+app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ ok: false, error: 'not-found' });
+
+    // нельзя удалить себя
+    if (req.session?.user?.id === id) return res.status(400).json({ ok: false, error: 'cannot-delete-self' });
+
+    await prisma.user.update({
+      where: { id },
+      data: { active: false }
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
     next(e);
   }
 });
@@ -294,7 +378,6 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
     const u = req.session.user;
     const id = String(req.params.id);
 
-    // ✅ период: по умолчанию 7 дней
     const nowMs = Date.now();
     const defaultFrom = nowMs - 7 * 24 * 60 * 60 * 1000;
 
@@ -319,7 +402,6 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
       return res.status(403).json({ ok: false, error: 'forbidden' });
     }
 
-    // ✅ берём операции ТОЛЬКО за период
     const ops = await prisma.operation.findMany({
       where: {
         itemId: id,
@@ -352,7 +434,7 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     const name = String(req.body.name || '').trim();
     const qty = Number(req.body.qty);
     const from = String(req.body.from || '—').trim();
-    const type = String(req.body.type || '').trim(); // in|out
+    const type = String(req.body.type || '').trim();
 
     if (!code || !name) return res.status(400).json({ ok: false, error: 'bad-request' });
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
@@ -394,12 +476,11 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
 });
 
 // --- REPORT (admin) ---
-// query: objectId=all|<id>, fromTs, toTs, itemCode?, type=all|in|out
 app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const objectId = String(req.query.objectId || 'all');
     const itemCode = String(req.query.itemCode || '').trim();
-    const type = String(req.query.type || 'all').trim(); // all | in | out
+    const type = String(req.query.type || 'all').trim();
 
     const fromTsNum = Number(req.query.fromTs || 0);
     const toTsNum = Number(req.query.toTs || Date.now());
@@ -411,16 +492,11 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
     const fromTs = BigInt(Math.max(0, Math.floor(fromTsNum)));
     const toTs = BigInt(Math.max(0, Math.floor(toTsNum)));
 
-    const where = {
-      ts: { gte: fromTs, lte: toTs }
-    };
+    const where = { ts: { gte: fromTs, lte: toTs } };
 
     if (objectId !== 'all') where.objectId = objectId;
     if (type === 'in' || type === 'out') where.type = type;
-
-    if (itemCode) {
-      where.item = { code: itemCode };
-    }
+    if (itemCode) where.item = { code: itemCode };
 
     const ops = await prisma.operation.findMany({
       where,
@@ -451,13 +527,9 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 /* ===========================
-   TRANSFERS
-   ✅ НЕ списываем при создании
-   ✅ списываем/принимаем только при ACCEPT
-   ✅ /incoming отдаёт fromObject.name
+   TRANSFERS (как у тебя)
    =========================== */
 
-// создать передачу (user) — только создаём pending
 app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -481,11 +553,7 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
       if (!toObj) return { err: { status: 404, error: 'to-object-not-found' } };
 
       const pendingAgg = await tx.transfer.aggregate({
-        where: {
-          fromObjectId: u.objectId,
-          code: item.code,
-          status: 'PENDING'
-        },
+        where: { fromObjectId: u.objectId, code: item.code, status: 'PENDING' },
         _sum: { qty: true }
       });
       const reserved = Number(pendingAgg?._sum?.qty || 0);
@@ -525,9 +593,7 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
       where: { toObjectId: u.objectId, status: 'PENDING' },
       orderBy: { createdAt: 'desc' },
       take: 200,
-      include: {
-        fromObject: true
-      }
+      include: { fromObject: true }
     });
 
     res.json({
@@ -556,9 +622,7 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
       where: { fromObjectId: u.objectId, status: 'PENDING' },
       orderBy: { createdAt: 'desc' },
       take: 200,
-      include: {
-        toObject: true
-      }
+      include: { toObject: true }
     });
 
     res.json({
@@ -602,10 +666,7 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       if (!senderItem) return { err: { status: 400, error: 'sender-item-missing' } };
       if (senderItem.quantity < tr.qty) return { err: { status: 400, error: 'sender-not-enough' } };
 
-      await tx.item.update({
-        where: { id: senderItem.id },
-        data: { quantity: senderItem.quantity - tr.qty }
-      });
+      await tx.item.update({ where: { id: senderItem.id }, data: { quantity: senderItem.quantity - tr.qty } });
 
       await tx.operation.create({
         data: {
@@ -641,13 +702,7 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
 
       const updated = await tx.transfer.update({
         where: { id },
-        data: {
-          status: 'ACCEPTED',
-          actedById: u.id,
-          actedAt,
-          actedTs,
-          actedTime
-        }
+        data: { status: 'ACCEPTED', actedById: u.id, actedAt, actedTs, actedTime }
       });
 
       return { transfer: updated };
@@ -676,13 +731,7 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
 
       const updated = await tx.transfer.update({
         where: { id },
-        data: {
-          status: 'REJECTED',
-          actedById: u.id,
-          actedAt,
-          actedTs,
-          actedTime
-        }
+        data: { status: 'REJECTED', actedById: u.id, actedAt, actedTs, actedTime }
       });
 
       return { transfer: updated };

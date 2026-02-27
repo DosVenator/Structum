@@ -520,11 +520,50 @@ async function renderAdminUsers(){
   usersList.innerHTML = '';
   users.forEach(u => {
     const li = document.createElement('li');
+
+    const status = u.active ? '' : ' <span class="muted">(удалён)</span>';
+
     li.innerHTML = `
-      <span>👤 ${escapeHtml(u.login)} <span class="muted">(${escapeHtml(u.role)})</span></span>
-      <span class="muted">${escapeHtml(u.objectName || '—')}</span>
+      <span>👤 ${escapeHtml(u.login)} <span class="muted">(${escapeHtml(u.role)})</span>${status}</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="muted">${escapeHtml(u.objectName || '—')}</span>
+        ${u.active ? `<button class="btn btn-danger" style="padding:8px 10px" data-del-user="${u.id}">🗑</button>` : ''}
+      </div>
     `;
+
     usersList.appendChild(li);
+  });
+
+  usersList.querySelectorAll('[data-del-user]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-del-user');
+
+      openConfirm({
+        title: 'Удалить пользователя?',
+        text: `Пользователь будет деактивирован и не сможет войти. Продолжить?`,
+        yesText: 'Да',
+        onYes: () => {
+          openConfirm({
+            title: 'Точно удалить?',
+            text: `Подтвердите удаление пользователя.`,
+            yesText: 'Удалить',
+            onYes: async () => {
+              const r = await store.adminDeleteUser(id);
+              if (!r.ok) {
+                const msg =
+                  r.error === 'cannot-delete-self'
+                    ? 'Нельзя удалить себя'
+                    : `Ошибка: ${r.status || ''} ${r.error || ''}`;
+                appToast(msg.trim());
+                return;
+              }
+              appToast('✅ Пользователь удалён');
+              await renderAdminUsers();
+            }
+          });
+        }
+      });
+    };
   });
 }
 
@@ -674,9 +713,34 @@ function closePwdModal(){
   pwdModal.classList.add('hidden');
 }
 if (pSave) {
-  pSave.onclick = () => {
-    soon('Смена пароля — скоро');
-    closePwdModal();
+  pSave.onclick = async () => {
+    pError.textContent = '';
+    const a = String(p1.value || '');
+    const b = String(p2.value || '');
+
+    if (!a || a.length < 4) { pError.textContent = 'Пароль минимум 4 символа'; return; }
+    if (a !== b) { pError.textContent = 'Пароли не совпадают'; return; }
+
+    pSave.disabled = true;
+    try {
+      const r = await store.changePassword(a);
+      if (!r.ok) {
+        const msg =
+          r.error === 'weak-password' ? 'Слишком простой пароль' :
+          r.error === 'inactive' ? 'Аккаунт деактивирован' :
+          `Ошибка: ${r.status || ''} ${r.error || ''}`;
+        pError.textContent = msg.trim();
+        return;
+      }
+
+      closePwdModal();
+      appToast('✅ Пароль изменён');
+
+      // ✅ после смены пароля — нормальный вход в систему
+      await afterLogin();
+    } finally {
+      pSave.disabled = false;
+    }
   };
 }
 
@@ -984,11 +1048,47 @@ function renderAdmin(){
 
   list.forEach(o => {
     const li = document.createElement('li');
-    li.innerHTML = `<span>📦 ${escapeHtml(o.name)}</span><span class="muted">id: ${String(o.id).slice(0,6)}…</span>`;
+    li.innerHTML = `
+      <span>📦 ${escapeHtml(o.name)}</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="muted">id: ${String(o.id).slice(0,6)}…</span>
+        <button class="btn btn-danger" style="padding:8px 10px" data-del-obj="${o.id}">🗑</button>
+      </div>
+    `;
     objectsList.appendChild(li);
   });
 
-  // usersList рендерится отдельно через renderAdminUsers()
+  objectsList.querySelectorAll('[data-del-obj]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-del-obj');
+      const name = store.getObjectById(id)?.name || 'Склад';
+
+      openConfirm({
+        title: 'Удалить склад?',
+        text: `Склад "${name}" будет деактивирован (и все пользователи этого склада тоже). Продолжить?`,
+        yesText: 'Да',
+        onYes: () => {
+          openConfirm({
+            title: 'Точно удалить?',
+            text: `Подтвердите удаление склада "${name}".`,
+            yesText: 'Удалить',
+            onYes: async () => {
+              const r = await store.adminDeleteObject(id);
+              if (!r.ok) {
+                appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+                return;
+              }
+              appToast('✅ Склад удалён');
+              await store.getObjects();
+              await initAdminObjectSelect();
+              renderAdmin();
+              await renderAdminUsers();
+            }
+          });
+        }
+      });
+    };
+  });
 }
 
 // ================================
