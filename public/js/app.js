@@ -89,6 +89,13 @@ const hTitle = document.getElementById('hTitle');
 const hBody  = document.getElementById('hBody');
 const hClose = document.getElementById('hClose');
 
+const trInfoModal = document.getElementById('trInfoModal');
+const trInfoTitle = document.getElementById('trInfoTitle');
+const trInfoBody  = document.getElementById('trInfoBody');
+const trInfoClose = document.getElementById('trInfoClose');
+
+if (trInfoClose) trInfoClose.onclick = () => trInfoModal.classList.add('hidden');
+
 hClose.onclick = () => historyModal.classList.add('hidden');
 
 function ymdLocal(d = new Date()) {
@@ -168,17 +175,33 @@ async function openHistory(itemId){
             const sign = o.type === 'in' ? '+' : '-';
             const typeLabel = o.type === 'in' ? 'Приход' : 'Расход';
             return `
-              <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)">
-                <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-                  <div><b>${sign}${o.qty}</b> <span class="muted">| ${escapeHtml(o.from)}</span></div>
-                  <div class="muted">${typeLabel}</div>
-                </div>
-                <div class="muted" style="font-size:13px">${escapeHtml(o.time)}</div>
-              </div>
-            `;
+  <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+      <div>
+        <b>${sign}${o.qty}</b>
+        <span class="muted">| ${escapeHtml(o.from)}</span>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center">
+        ${o.damaged ? `<span title="Повреждено" style="font-size:14px">🔷</span>` : ''}
+        ${o.hasComment && o.transferId ? `<button class="btn btn-secondary" style="padding:6px 10px" data-trc="${o.transferId}" title="Открыть комментарий">💬</button>` : ''}
+        <div class="muted">${typeLabel}</div>
+      </div>
+    </div>
+
+    <div class="muted" style="font-size:13px">${escapeHtml(o.time)}</div>
+  </div>
+`;
           }).join('')
         : `<div class="muted">Нет операций за выбранный период</div>`;
-    } catch (e) {
+    hList.querySelectorAll('[data-trc]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-trc');
+          await openTransferInfo(id);
+        };
+      });
+    
+      } catch (e) {
       console.error(e);
       hList.innerHTML = `<div class="muted">Ошибка загрузки истории</div>`;
     }
@@ -189,7 +212,34 @@ async function openHistory(itemId){
 
   await load();
 }
+async function openTransferInfo(transferId){
+  if (!transferId) return;
 
+  trInfoTitle.textContent = '💬 Детали передачи';
+  trInfoBody.innerHTML = `<div class="muted">Загрузка…</div>`;
+  trInfoModal.classList.remove('hidden');
+
+  const r = await store.getTransferDetails(transferId);
+  if (!r.ok) {
+    trInfoBody.innerHTML = `<div class="muted">Ошибка: ${escapeHtml(r.error || 'server')}</div>`;
+    return;
+  }
+
+  const t = r.transfer;
+
+  trInfoBody.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
+      <div class="muted">Кол-во: <b>${t.qty}</b></div>
+      <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName)}</b></div>
+      <div class="muted">Куда: <b>${escapeHtml(t.toObjectName)}</b></div>
+      <div class="muted">Когда: <b>${escapeHtml(t.time)}</b></div>
+      <div class="muted">Статус: <b>${escapeHtml(String(t.status || ''))}</b></div>
+      ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
+      ${t.comment ? `<div style="margin-top:6px"><div class="muted">Комментарий:</div><div><b>${escapeHtml(t.comment)}</b></div></div>` : `<div class="muted">Комментария нет</div>`}
+    </div>
+  `;
+}
 // ================================
 // Modals: writeoff
 // ================================

@@ -75,6 +75,10 @@ model Operation {
   userId   String?
   user     User?    @relation(fields: [userId], references: [id])
 
+   // ✅ NEW: связь с передачей (если операция создана из Transfer)
+  transferId String?
+  transfer   Transfer? @relation(fields: [transferId], references: [id])
+
   @@index([objectId, ts])
   @@index([itemId, ts])
 }
@@ -113,6 +117,9 @@ model Transfer {
 
   toObjectId String
   toObject   Object         @relation("TransferTo", fields: [toObjectId], references: [id])
+
+  // ✅ NEW: операции, созданные при accept (in/out)
+  operations Operation[]
 
   @@index([toObjectId, status, createdAt])
   @@index([fromObjectId, status, createdAt])

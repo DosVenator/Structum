@@ -420,13 +420,16 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
       return res.status(403).json({ ok: false, error: 'forbidden' });
     }
 
-    const ops = await prisma.operation.findMany({
+     const ops = await prisma.operation.findMany({
       where: {
         itemId: id,
         ts: { gte: fromTs, lte: toTs }
       },
       orderBy: { ts: 'desc' },
-      take: 500
+      take: 500,
+      include: {
+        transfer: { select: { id: true, damaged: true, comment: true } }
+      }
     });
 
     const history = ops.map(op => ({
@@ -434,7 +437,12 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
       qty: op.qty,
       from: op.from,
       time: op.time,
-      ts: op.ts
+      ts: op.ts,
+
+      // ✅ NEW: метки для UI
+      transferId: op.transfer?.id || null,
+      damaged: op.transfer?.damaged === true,
+      hasComment: !!(op.transfer?.comment && String(op.transfer.comment).trim())
     }));
 
     res.json({ ok: true, history });
@@ -442,7 +450,59 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
+// ✅ Transfer details (for history comment modal)
+app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const id = String(req.params.id);
 
+    const tr = await prisma.transfer.findUnique({
+      where: { id },
+      include: {
+        fromObject: { select: { id: true, name: true } },
+        toObject: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, login: true } },
+        actedBy: { select: { id: true, login: true } }
+      }
+    });
+
+    if (!tr) return res.status(404).json({ ok: false, error: 'not-found' });
+
+    // access control:
+    if (u.role !== 'admin') {
+      if (tr.fromObjectId !== u.objectId && tr.toObjectId !== u.objectId) {
+        return res.status(403).json({ ok: false, error: 'forbidden' });
+      }
+    }
+
+    res.json({
+      ok: true,
+      transfer: {
+        id: tr.id,
+        code: tr.code,
+        name: tr.name,
+        qty: tr.qty,
+        status: tr.status,
+        ts: tr.ts,
+        time: tr.time,
+
+        damaged: tr.damaged === true,
+        comment: tr.comment || '',
+
+        fromObjectId: tr.fromObjectId,
+        fromObjectName: tr.fromObject?.name || '',
+        toObjectId: tr.toObjectId,
+        toObjectName: tr.toObject?.name || '',
+
+        createdByLogin: tr.createdBy?.login || '',
+        actedByLogin: tr.actedBy?.login || '',
+        actedTime: tr.actedTime || ''
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 // --- OPERATIONS (приход/расход) ---
 app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
   try {
@@ -711,7 +771,10 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
           time: actedTime,
           objectId: tr.fromObjectId,
           itemId: senderItem.id,
-          userId: tr.createdById
+          userId: tr.createdById,
+
+          // ✅ NEW
+          transferId: tr.id
         }
       });
 
@@ -730,7 +793,10 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
           time: actedTime,
           objectId: tr.toObjectId,
           itemId: receiverItem.id,
-          userId: u.id
+          userId: u.id,
+
+          // ✅ NEW
+          transferId: tr.id
         }
       });
 

@@ -197,7 +197,14 @@ async function rejectTransfer(id) {
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
-
+async function getTransferDetails(id) {
+  try {
+    const r = await api(`/api/transfers/${encodeURIComponent(id)}`);
+    return { ok: true, transfer: r.transfer };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
 /* ===========================
    ADMIN
    =========================== */
@@ -279,7 +286,8 @@ window.store = {
   getOutgoingTransfers,
   acceptTransfer,
   rejectTransfer,
-
+  getTransferDetails,
+  
   // admin
   getUsers,
   adminCreateObject,
