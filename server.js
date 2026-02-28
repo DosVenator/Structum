@@ -450,59 +450,7 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
-// ✅ Transfer details (for history comment modal)
-app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
-  try {
-    const u = req.session.user;
-    const id = String(req.params.id);
 
-    const tr = await prisma.transfer.findUnique({
-      where: { id },
-      include: {
-        fromObject: { select: { id: true, name: true } },
-        toObject: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, login: true } },
-        actedBy: { select: { id: true, login: true } }
-      }
-    });
-
-    if (!tr) return res.status(404).json({ ok: false, error: 'not-found' });
-
-    // access control:
-    if (u.role !== 'admin') {
-      if (tr.fromObjectId !== u.objectId && tr.toObjectId !== u.objectId) {
-        return res.status(403).json({ ok: false, error: 'forbidden' });
-      }
-    }
-
-    res.json({
-      ok: true,
-      transfer: {
-        id: tr.id,
-        code: tr.code,
-        name: tr.name,
-        qty: tr.qty,
-        status: tr.status,
-        ts: tr.ts,
-        time: tr.time,
-
-        damaged: tr.damaged === true,
-        comment: tr.comment || '',
-
-        fromObjectId: tr.fromObjectId,
-        fromObjectName: tr.fromObject?.name || '',
-        toObjectId: tr.toObjectId,
-        toObjectName: tr.toObject?.name || '',
-
-        createdByLogin: tr.createdBy?.login || '',
-        actedByLogin: tr.actedBy?.login || '',
-        actedTime: tr.actedTime || ''
-      }
-    });
-  } catch (e) {
-    next(e);
-  }
-});
 // --- OPERATIONS (приход/расход) ---
 app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
   try {
@@ -731,6 +679,60 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
         damaged: t.damaged,
         comment: t.comment
       }))
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ✅ Transfer details (for history comment modal)
+app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const id = String(req.params.id);
+
+    const tr = await prisma.transfer.findUnique({
+      where: { id },
+      include: {
+        fromObject: { select: { id: true, name: true } },
+        toObject: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, login: true } },
+        actedBy: { select: { id: true, login: true } }
+      }
+    });
+
+    if (!tr) return res.status(404).json({ ok: false, error: 'not-found' });
+
+    // access control:
+    if (u.role !== 'admin') {
+      if (tr.fromObjectId !== u.objectId && tr.toObjectId !== u.objectId) {
+        return res.status(403).json({ ok: false, error: 'forbidden' });
+      }
+    }
+
+    res.json({
+      ok: true,
+      transfer: {
+        id: tr.id,
+        code: tr.code,
+        name: tr.name,
+        qty: tr.qty,
+        status: tr.status,
+        ts: tr.ts,
+        time: tr.time,
+
+        damaged: tr.damaged === true,
+        comment: tr.comment || '',
+
+        fromObjectId: tr.fromObjectId,
+        fromObjectName: tr.fromObject?.name || '',
+        toObjectId: tr.toObjectId,
+        toObjectName: tr.toObject?.name || '',
+
+        createdByLogin: tr.createdBy?.login || '',
+        actedByLogin: tr.actedBy?.login || '',
+        actedTime: tr.actedTime || ''
+      }
     });
   } catch (e) {
     next(e);
