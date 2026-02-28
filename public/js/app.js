@@ -20,6 +20,7 @@ const adminPanel = document.getElementById('adminPanel');
 
 const transferBtn = document.getElementById('transferBtn');
 const transferBadge = document.getElementById('transferBadge');
+let lastTransferUpdateTs = Number(localStorage.getItem('lastTransferUpdateTs') || 0);
 
 // toast
 const toastEl = document.getElementById('toast');
@@ -266,6 +267,35 @@ async function openTransferInfo(transferId){
     console.error(e);
     trInfoBody.innerHTML = `<div class="muted">Ошибка загрузки</div>`;
   }
+}
+async function pollTransferUpdates() {
+  const u = await store.currentUserObj();
+  if (!u || u.role !== 'user') return;
+
+  // получаем обновления по передачам, где я ОТПРАВИТЕЛЬ
+  const r = await store.getTransferUpdates(lastTransferUpdateTs);
+  if (!r.ok) return;
+
+  const updates = r.updates || [];
+  if (!updates.length) return;
+
+  for (const t of updates) {
+    if (t.status === 'REJECTED') {
+      // ✅ главное уведомление
+      appToast(`⛔ ${t.toObjectName} отказался принять: ${t.name} ×${t.qty}. Баланс не изменился.`);
+    } else if (t.status === 'ACCEPTED') {
+      // опционально — уведомление о принятии
+      appToast(`✅ ${t.toObjectName} принял: ${t.name} ×${t.qty}.`);
+    }
+  }
+
+  // обновляем sinceTs на максимальный actedTs
+  const maxTs = updates.reduce((m, x) => Math.max(m, Number(x.actedTs || 0)), lastTransferUpdateTs);
+  lastTransferUpdateTs = maxTs;
+  localStorage.setItem('lastTransferUpdateTs', String(lastTransferUpdateTs));
+
+  // чтобы badge/списки обновлялись
+  await updateTransferBadge();
 }
 // ================================
 // Modals: writeoff
@@ -1270,14 +1300,15 @@ if (!btn) {
   await updateTransferBadge();
 
   if (window.__transferBadgeTimer) clearInterval(window.__transferBadgeTimer);
-  window.__transferBadgeTimer = setInterval(() => {
-    updateTransferBadge().catch(() => {});
-  }, 20000);
+window.__transferBadgeTimer = setInterval(() => {
+  updateTransferBadge().catch(() => {});
+  pollTransferUpdates().catch(() => {});
+}, 8000); // можно 8-10 сек
 
   await renderList(searchInput.value);
   renderAdmin();
 }
-
+await pollTransferUpdates();
 function renderAdmin(){
   if (!objectsList || !usersList) return;
 
