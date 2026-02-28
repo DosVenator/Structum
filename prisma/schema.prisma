@@ -16,6 +16,7 @@ model Object {
   users      User[]
   items      Item[]
   operations Operation[]
+  pushSubscriptions PushSubscription[]
 
   // transfers
   transfersFrom Transfer[] @relation("TransferFrom")
@@ -35,6 +36,7 @@ model User {
   object   Object?   @relation(fields: [objectId], references: [id])
 
   operations Operation[]
+  pushSubscriptions PushSubscription[]
 
   // transfers
   transfersCreated Transfer[] @relation("TransferCreatedBy")
