@@ -96,6 +96,9 @@ model Transfer {
   ts        BigInt         // когда создано (как у операций)
   time      String         // строка для UI
 
+   // ✅ NEW: комментарий к передаче
+  damaged   Boolean        @default(false)
+  comment   String?
   createdById String
   createdBy   User          @relation("TransferCreatedBy", fields: [createdById], references: [id])
 

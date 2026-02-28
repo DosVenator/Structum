@@ -257,6 +257,8 @@ const cancelTransfer  = document.getElementById('cancelTransfer');
 const transferTo = document.getElementById('transferTo');
 const transferQty = document.getElementById('transferQty');
 const transferError = document.getElementById('transferError');
+const transferDamaged = document.getElementById('transferDamaged');
+const transferComment = document.getElementById('transferComment');
 const confirmTransfer = document.getElementById('confirmTransfer');
 const transferItemName = document.getElementById('transferItemName');
 const incomingList = document.getElementById('incomingList');
@@ -314,6 +316,8 @@ async function openTransferModal(itemId){
 
   transferError.textContent = '';
   transferQty.value = '';
+   if (transferDamaged) transferDamaged.checked = false;
+  if (transferComment) transferComment.value = '';
   transferItemName.textContent = `Товар: ${item.name} (доступно: ${item.quantity})`;
 
   const objs = await store.getObjects();
@@ -354,7 +358,10 @@ if (confirmTransfer) {
 
     confirmTransfer.disabled = true;
     try {
-      const r = await store.createTransfer({ itemId: item.id, toObjectId, qty });
+      const damaged = !!transferDamaged?.checked;
+    const comment = String(transferComment?.value || '').trim();
+
+    const r = await store.createTransfer({ itemId: item.id, toObjectId, qty, damaged, comment });
       if (!r.ok) {
         const msg =
           r.error === 'not-enough' ? 'Недостаточно остатка' :
@@ -417,6 +424,8 @@ async function openIncomingTransfers() {
           <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName || '—')}</b></div>
           <div class="muted">Кол-во: <b>${t.qty}</b></div>
           <div class="muted">${escapeHtml(t.time || '')}</div>
+           ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
+          ${t.comment ? `<div class="muted">💬 ${escapeHtml(t.comment)}</div>` : ''}
 
           <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
             <button class="btn btn-primary" data-accept="${t.id}">✅ Принять</button>
@@ -449,6 +458,8 @@ async function openIncomingTransfers() {
           <div class="muted">Куда: <b>${escapeHtml(t.toObjectName || '—')}</b></div>
           <div class="muted">Кол-во: <b>${t.qty}</b></div>
           <div class="muted">${escapeHtml(t.time || '')}</div>
+          ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
+          ${t.comment ? `<div class="muted">💬 ${escapeHtml(t.comment)}</div>` : ''}
           <div class="muted">Статус: <b>ожидает</b></div>
         </div>
       `;

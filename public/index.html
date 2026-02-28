@@ -181,6 +181,14 @@
       <label>Количество</label>
       <input id="transferQty" type="number" inputmode="numeric" placeholder="Количество" />
 
+       <label style="display:flex;align-items:center;gap:10px;margin-top:10px">
+        <input id="transferDamaged" type="checkbox" style="width:auto" />
+        <span class="muted">Повреждено / поломано</span>
+      </label>
+
+      <label>Комментарий</label>
+      <input id="transferComment" placeholder="Например: сломан инструмент / нет комплекта" />
+
       <div id="transferError" class="error"></div>
 
       <div class="modal-actions">

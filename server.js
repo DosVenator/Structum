@@ -556,6 +556,10 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
     const itemId = String(req.body.itemId || '').trim();
     const qty = Number(req.body.qty);
 
+    const damaged = !!req.body.damaged;
+    const comment = String(req.body.comment || '').trim();
+    const safeComment = comment ? comment.slice(0, 200) : null;
+
     if (!toObjectId || !itemId) return res.status(400).json({ ok: false, error: 'bad-request' });
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
     if (toObjectId === u.objectId) return res.status(400).json({ ok: false, error: 'same-object' });
@@ -579,7 +583,7 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
 
       if (available < qty) return { err: { status: 400, error: 'not-enough' } };
 
-      const transfer = await tx.transfer.create({
+       const transfer = await tx.transfer.create({
         data: {
           code: item.code,
           name: item.name,
@@ -589,7 +593,11 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
           fromObjectId: u.objectId,
           toObjectId,
           ts,
-          time
+          time,
+
+          // ✅ NEW
+          damaged,
+          comment: safeComment
         }
       });
 
@@ -616,7 +624,7 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
 
     res.json({
       ok: true,
-      transfers: transfers.map(t => ({
+       transfers: transfers.map(t => ({
         id: t.id,
         code: t.code,
         name: t.name,
@@ -624,7 +632,11 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
         time: t.time,
         ts: t.ts,
         fromObjectId: t.fromObjectId,
-        fromObjectName: t.fromObject?.name || ''
+        fromObjectName: t.fromObject?.name || '',
+
+        // ✅ NEW
+        damaged: t.damaged,
+        comment: t.comment
       }))
     });
   } catch (e) {
@@ -653,7 +665,11 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
         time: t.time,
         ts: t.ts,
         toObjectId: t.toObjectId,
-        toObjectName: t.toObject?.name || ''
+        toObjectName: t.toObject?.name || '',
+
+        // ✅ NEW
+        damaged: t.damaged,
+        comment: t.comment
       }))
     });
   } catch (e) {

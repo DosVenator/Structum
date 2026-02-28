@@ -144,11 +144,17 @@ async function adminGetReport({ objectId, fromTs, toTs, itemCode, type = 'all' }
    TRANSFERS
    =========================== */
 
-async function createTransfer({ itemId, toObjectId, qty }) {
+async function createTransfer({ itemId, toObjectId, qty, damaged = false, comment = '' }) {
   try {
     const r = await api('/api/transfers', {
       method: 'POST',
-      body: { itemId, toObjectId, qty: Number(qty) }
+      body: {
+        itemId,
+        toObjectId,
+        qty: Number(qty),
+        damaged: !!damaged,
+        comment: String(comment || '')
+      }
     });
     return { ok: true, transfer: r.transfer };
   } catch (e) {
