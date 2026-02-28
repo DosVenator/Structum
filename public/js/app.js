@@ -1,5 +1,6 @@
 import './store.js';
-// app.js — UI/логика экранов (API-store async)
+import './scanner.js';
+
 const store = window.store;
 // DOM
 const loginBox = document.getElementById('loginBox');

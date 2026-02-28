@@ -1,5 +1,5 @@
 // scanner.js — отвечает за камеру и за приход/списание (через модалки)
-
+const store = window.store;
 let scanner = null;
 let scanning = false;
 let lastScannedCode = null;
