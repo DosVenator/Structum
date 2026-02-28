@@ -94,7 +94,19 @@ const trInfoTitle = document.getElementById('trInfoTitle');
 const trInfoBody  = document.getElementById('trInfoBody');
 const trInfoClose = document.getElementById('trInfoClose');
 
-if (trInfoClose) trInfoClose.onclick = () => trInfoModal.classList.add('hidden');
+function closeTrInfo(){
+  trInfoModal.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+}
+
+if (trInfoClose) trInfoClose.onclick = closeTrInfo;
+
+// закрытие по клику на фон (как в reportModal)
+if (trInfoModal) {
+  trInfoModal.addEventListener('click', (e) => {
+    if (e.target === trInfoModal) closeTrInfo();
+  });
+}
 
 hClose.onclick = () => historyModal.classList.add('hidden');
 
@@ -195,11 +207,13 @@ async function openHistory(itemId){
           }).join('')
         : `<div class="muted">Нет операций за выбранный период</div>`;
     hList.querySelectorAll('[data-trc]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-trc');
-          await openTransferInfo(id);
-        };
-      });
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = btn.getAttribute('data-trc');
+    await openTransferInfo(id);
+  });
+});
     
       } catch (e) {
       console.error(e);
@@ -217,28 +231,41 @@ async function openTransferInfo(transferId){
 
   trInfoTitle.textContent = '💬 Детали передачи';
   trInfoBody.innerHTML = `<div class="muted">Загрузка…</div>`;
+
+  // ✅ важно для корректного отображения поверх
+  document.body.classList.add('modal-open');
   trInfoModal.classList.remove('hidden');
 
-  const r = await store.getTransferDetails(transferId);
-  if (!r.ok) {
-    trInfoBody.innerHTML = `<div class="muted">Ошибка: ${escapeHtml(r.error || 'server')}</div>`;
-    return;
+  try {
+    const r = await store.getTransferDetails(transferId);
+    if (!r.ok) {
+      trInfoBody.innerHTML = `<div class="muted">Ошибка: ${escapeHtml(r.error || 'server')}</div>`;
+      return;
+    }
+
+    const t = r.transfer;
+
+    trInfoBody.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
+        <div class="muted">Кол-во: <b>${t.qty}</b></div>
+        <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName)}</b></div>
+        <div class="muted">Куда: <b>${escapeHtml(t.toObjectName)}</b></div>
+        <div class="muted">Когда: <b>${escapeHtml(t.time)}</b></div>
+        <div class="muted">Статус: <b>${escapeHtml(String(t.status || ''))}</b></div>
+        ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
+        ${t.comment
+          ? `<div style="margin-top:6px">
+               <div class="muted">Комментарий:</div>
+               <div><b>${escapeHtml(t.comment)}</b></div>
+             </div>`
+          : `<div class="muted">Комментария нет</div>`}
+      </div>
+    `;
+  } catch (e) {
+    console.error(e);
+    trInfoBody.innerHTML = `<div class="muted">Ошибка загрузки</div>`;
   }
-
-  const t = r.transfer;
-
-  trInfoBody.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
-      <div class="muted">Кол-во: <b>${t.qty}</b></div>
-      <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName)}</b></div>
-      <div class="muted">Куда: <b>${escapeHtml(t.toObjectName)}</b></div>
-      <div class="muted">Когда: <b>${escapeHtml(t.time)}</b></div>
-      <div class="muted">Статус: <b>${escapeHtml(String(t.status || ''))}</b></div>
-      ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
-      ${t.comment ? `<div style="margin-top:6px"><div class="muted">Комментарий:</div><div><b>${escapeHtml(t.comment)}</b></div></div>` : `<div class="muted">Комментария нет</div>`}
-    </div>
-  `;
 }
 // ================================
 // Modals: writeoff
