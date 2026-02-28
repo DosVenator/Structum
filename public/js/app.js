@@ -1,3 +1,4 @@
+import './store.js';
 // app.js — UI/логика экранов (API-store async)
 const store = window.store;
 // DOM
