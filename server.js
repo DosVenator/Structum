@@ -707,7 +707,48 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
     next(e);
   }
 });
+// ✅ Updates for sender: accepted/rejected sinceTs
+app.get('/api/transfers/updates', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
 
+    const sinceTsNum = Number(req.query.sinceTs || 0);
+    if (!Number.isFinite(sinceTsNum)) {
+      return res.status(400).json({ ok: false, error: 'bad-ts' });
+    }
+    const sinceTs = BigInt(Math.max(0, Math.floor(sinceTsNum)));
+
+    const transfers = await prisma.transfer.findMany({
+      where: {
+        fromObjectId: u.objectId,
+        status: { in: ['ACCEPTED', 'REJECTED'] },
+        actedTs: { gt: sinceTs }
+      },
+      orderBy: { actedTs: 'asc' },
+      take: 200,
+      include: { toObject: { select: { id: true, name: true } } }
+    });
+
+    res.json({
+      ok: true,
+      updates: transfers.map(t => ({
+        id: t.id,
+        code: t.code,
+        name: t.name,
+        qty: t.qty,
+        status: t.status,
+        actedTs: t.actedTs,
+        actedTime: t.actedTime || '',
+        toObjectId: t.toObjectId,
+        toObjectName: t.toObject?.name || '',
+        damaged: t.damaged === true,
+        comment: t.comment || ''
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 // ✅ Transfer details (for history comment modal)
 app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
   try {
@@ -868,48 +909,7 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
     next(e);
   }
 });
-// ✅ Updates for sender: accepted/rejected sinceTs
-app.get('/api/transfers/updates', requireAuth, requireUser, async (req, res, next) => {
-  try {
-    const u = req.session.user;
 
-    const sinceTsNum = Number(req.query.sinceTs || 0);
-    if (!Number.isFinite(sinceTsNum)) {
-      return res.status(400).json({ ok: false, error: 'bad-ts' });
-    }
-    const sinceTs = BigInt(Math.max(0, Math.floor(sinceTsNum)));
-
-    const transfers = await prisma.transfer.findMany({
-      where: {
-        fromObjectId: u.objectId,
-        status: { in: ['ACCEPTED', 'REJECTED'] },
-        actedTs: { gt: sinceTs }
-      },
-      orderBy: { actedTs: 'asc' },
-      take: 200,
-      include: { toObject: { select: { id: true, name: true } } }
-    });
-
-    res.json({
-      ok: true,
-      updates: transfers.map(t => ({
-        id: t.id,
-        code: t.code,
-        name: t.name,
-        qty: t.qty,
-        status: t.status,
-        actedTs: t.actedTs,
-        actedTime: t.actedTime || '',
-        toObjectId: t.toObjectId,
-        toObjectName: t.toObject?.name || '',
-        damaged: t.damaged === true,
-        comment: t.comment || ''
-      }))
-    });
-  } catch (e) {
-    next(e);
-  }
-});
 // Главная
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
