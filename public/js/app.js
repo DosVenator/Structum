@@ -1490,6 +1490,8 @@ window.__transferBadgeTimer = setInterval(() => {
 
   await renderList(searchInput.value);
   await initPushIfPossible();
+  // временно: быстро проверить пуш
+  store.pushTest().then(r => console.log('pushTest', r));
   renderAdmin();
 }
 

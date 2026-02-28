@@ -294,6 +294,14 @@ async function pushSubscribe(subscription) {
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
+async function pushTest() {
+  try {
+    const r = await api('/api/push/test', { method: 'POST' });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
 
 window.store = {
   loginUser,
@@ -332,5 +340,6 @@ window.store = {
   adminDeleteUser,
 
   // stubs
+  pushTest,
   deleteItem
 };

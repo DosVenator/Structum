@@ -1,65 +1,77 @@
 /* public/sw.js */
 
+// Чтобы SW сразу активировался
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+// PUSH: показываем системное уведомление (шторка + звук ОС по умолчанию)
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
     payload = event.data ? event.data.json() : {};
-  } catch {
-    payload = {};
+  } catch (e) {
+    payload = { title: 'Уведомление', body: event.data ? event.data.text() : '' };
   }
 
-  const title = payload.title || 'Уведомление';
+  const title = payload.title || 'Structum';
+  const body = payload.body || 'Новое событие';
+
   const options = {
-    body: payload.body || '',
+    body,
+    tag: payload.tag || undefined,
+    renotify: true,
+
+    // На Android даст стандартный звук/вибро по настройкам системы
+    vibrate: [80, 40, 80],
+
+    // Чтобы клик открывал приложение
+    data: payload.data || { url: '/' },
+
+    // Иконки (если есть)
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    data: payload.data || {},
-    tag: payload.tag || 'inv',
-    renotify: true,
-    requireInteraction: false
+
+    // Можно сделать "липким" (не всем нравится):
+    // requireInteraction: true
   };
 
   event.waitUntil((async () => {
-    // ✅ если приложение открыто и видно — НЕ показываем системную нотификацию,
-    // а отправляем сообщение в UI (toast + звук).
-    const clientsArr = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-
-    const hasVisible = clientsArr.some(c => {
-      try { return c.visibilityState === 'visible'; } catch { return false; }
-    });
-
-    if (hasVisible) {
-      for (const c of clientsArr) {
-        c.postMessage({ type: 'PUSH_EVENT', payload });
-      }
-      return;
-    }
-
-    // ✅ иначе показываем системное уведомление (будет системный звук)
+    // 1) Показать системную нотификацию
     await self.registration.showNotification(title, options);
+
+    // 2) Плюс отправим сообщение в открытую вкладку (чтобы тост/звук онлайн)
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      client.postMessage({ type: 'PUSH_EVENT', payload });
+    }
   })());
 });
 
+// Клик по уведомлению → открыть/фокуснуть приложение
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const url = (event.notification?.data && event.notification.data.url) ? event.notification.data.url : '/';
 
   event.waitUntil((async () => {
-    const clientsArr = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
 
-    for (const c of clientsArr) {
-      // если уже открыто — фокусируем
-      if ('focus' in c) {
-        await c.focus();
-        try { c.postMessage({ type: 'OPEN_URL', url }); } catch {}
-        return;
+    // если уже открыто — фокус
+    for (const client of allClients) {
+      if ('focus' in client) {
+        client.postMessage({ type: 'OPEN_URL', url });
+        return client.focus();
       }
     }
 
-    // иначе открываем новое окно
+    // иначе открыть новое
     if (self.clients.openWindow) {
-      await self.clients.openWindow(url);
+      return self.clients.openWindow(url);
     }
   })());
 });

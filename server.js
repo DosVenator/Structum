@@ -122,7 +122,28 @@ app.post('/api/push/subscribe', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
+// Тестовый пуш (самому себе на текущий объект)
+// Вызов: POST /api/push/test
+app.post('/api/push/test', requireAuth, async (req, res) => {
+  try {
+    if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
 
+    const u = req.session.user;
+    if (!u?.objectId) return res.status(400).json({ ok: false, error: 'no-object' });
+
+    await sendPushToObject(u.objectId, {
+      title: '🔔 Тест уведомлений',
+      body: 'Если ты это видишь в шторке — PUSH работает.',
+      tag: 'test-push',
+      data: { url: '/' }
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('push test error', e);
+    res.status(500).json({ ok: false, error: 'server' });
+  }
+});
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
@@ -163,11 +184,12 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    proxy: true, // важно за прокси
     cookie: {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: 'auto', // ✅ ключевое: сам определит по https (при trust proxy)
       maxAge: 1000 * 60 * 60 * 24 * 14
     }
   })
