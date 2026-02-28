@@ -23,13 +23,72 @@ const transferBadge = document.getElementById('transferBadge');
 let lastTransferUpdateTs = Number(localStorage.getItem('lastTransferUpdateTs') || 0);
 
 // toast
+// toast
 const toastEl = document.getElementById('toast');
-function appToast(msg){
+
+let toastTimer = null;
+
+function hideToast(){
   if (!toastEl) return;
-  toastEl.textContent = msg;
-  toastEl.classList.remove('hidden');
-  setTimeout(() => toastEl.classList.add('hidden'), 2200);
+  toastEl.classList.add('hidden');
+  toastEl.innerHTML = '';
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
 }
+
+function appToast(msg, opts = {}) {
+  if (!toastEl) return;
+
+  const {
+    sticky = false,      // если true — не закрываем автоматически
+    timeout = 2200       // время автозакрытия для не-sticky
+  } = opts || {};
+
+  // очистим предыдущий таймер
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+
+  // строим DOM безопасно (без innerHTML с пользовательским текстом)
+  toastEl.innerHTML = '';
+  toastEl.classList.remove('hidden');
+
+  toastEl.style.display = 'flex';
+  toastEl.style.alignItems = 'center';
+  toastEl.style.justifyContent = 'space-between';
+  toastEl.style.gap = '10px';
+
+  const text = document.createElement('div');
+  text.textContent = String(msg || '');
+
+  toastEl.appendChild(text);
+
+  if (sticky) {
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = '✕';
+    closeBtn.title = 'Закрыть';
+    closeBtn.style.border = 'none';
+    closeBtn.style.background = 'transparent';
+    closeBtn.style.color = 'inherit';
+    closeBtn.style.fontSize = '16px';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.style.padding = '2px 6px';
+    closeBtn.onclick = hideToast;
+
+    toastEl.appendChild(closeBtn);
+
+    // опционально: закрывать по клику на само уведомление
+    // toastEl.onclick = hideToast;
+
+  } else {
+    toastTimer = setTimeout(hideToast, Number(timeout) || 2200);
+  }
+}
+
 window.appToast = appToast;
 
 function soon(msg = 'Скоро будет ✅') {
@@ -282,7 +341,7 @@ async function pollTransferUpdates() {
   for (const t of updates) {
     if (t.status === 'REJECTED') {
       // ✅ главное уведомление
-      appToast(`⛔ ${t.toObjectName} отказался принять: ${t.name} ×${t.qty}. Баланс не изменился.`);
+      appToast(`⛔ ${t.toObjectName} отказался принять: ${t.name} ×${t.qty}. Баланс не изменился.`, { sticky: true });
     } else if (t.status === 'ACCEPTED') {
       // опционально — уведомление о принятии
       appToast(`✅ ${t.toObjectName} принял: ${t.name} ×${t.qty}.`);
