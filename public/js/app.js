@@ -1298,17 +1298,19 @@ if (!btn) {
   }
 
   await updateTransferBadge();
+await pollTransferUpdates();
 
   if (window.__transferBadgeTimer) clearInterval(window.__transferBadgeTimer);
 window.__transferBadgeTimer = setInterval(() => {
   updateTransferBadge().catch(() => {});
+  
   pollTransferUpdates().catch(() => {});
 }, 8000); // можно 8-10 сек
 
   await renderList(searchInput.value);
   renderAdmin();
 }
-await pollTransferUpdates();
+
 function renderAdmin(){
   if (!objectsList || !usersList) return;
 
