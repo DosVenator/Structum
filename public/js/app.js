@@ -22,6 +22,29 @@ const transferBtn = document.getElementById('transferBtn');
 const transferBadge = document.getElementById('transferBadge');
 let lastTransferUpdateTs = Number(localStorage.getItem('lastTransferUpdateTs') || 0);
 
+const netChip = document.getElementById('netChip');
+const queueChip = document.getElementById('queueChip');
+
+function setNetStatus() {
+  const on = navigator.onLine === true;
+  if (!netChip) return;
+  netChip.textContent = on ? '🟢 Online' : '🔴 Offline';
+  netChip.style.opacity = on ? '1' : '0.95';
+}
+
+async function refreshQueueChip() {
+  if (!queueChip || !store.queueCount) return;
+  try {
+    const n = await store.queueCount();
+    if (n > 0) {
+      queueChip.textContent = `⏳ ${n}`;
+      queueChip.classList.remove('hidden');
+    } else {
+      queueChip.classList.add('hidden');
+    }
+  } catch {}
+}
+
 // toast
 // toast
 const toastEl = document.getElementById('toast');
@@ -1526,6 +1549,12 @@ try {
   if (n > 0) appToast(`⏳ Офлайн-очередь: ${n} действий (отправится при появлении сети)`, { sticky: true });
 } catch {}
   renderAdmin();
+  setNetStatus();
+await refreshQueueChip();
+
+// периодически обновляем очередь (дешево)
+if (window.__queueChipTimer) clearInterval(window.__queueChipTimer);
+window.__queueChipTimer = setInterval(() => refreshQueueChip().catch(()=>{}), 6000);
 }
 
 function renderAdmin(){
@@ -1711,6 +1740,9 @@ searchInput.addEventListener('input', async (e) => {
 // ================================
 (async function boot(){
   try {
+    setNetStatus();
+window.addEventListener('online', () => { setNetStatus(); refreshQueueChip(); });
+window.addEventListener('offline', () => setNetStatus());
     splashSetText("Проверяем сессию…");
     splashSetProgress(20);
 

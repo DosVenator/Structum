@@ -774,3 +774,4 @@ html, body{
     word-break: break-word;
   }
 }
+.chip.hidden { display: none; }

@@ -5,6 +5,7 @@ import { enqueueJob, initQueueAutoFlush, queueCount } from './offlineQueue.js';
 let _me = null;
 let _objects = [];
 let _items = [];
+let _localDirty = false; // есть локальные изменения, не затирать кэшем
 
 async function api(path, { method = 'GET', body } = {}) {
   const opts = {
@@ -107,10 +108,15 @@ async function getItems({ objectId = 'all' } = {}) {
     await cacheSet(cacheKey, _items);
     return _items;
   } catch (e) {
-    const cached = await cacheGet(cacheKey);
-    _items = Array.isArray(cached) ? cached : [];
+  const cached = await cacheGet(cacheKey);
+  const cachedArr = Array.isArray(cached) ? cached : [];
+  // если есть локальные изменения (queued), не перетираем текущий _items кэшем
+  if (_localDirty && Array.isArray(_items) && _items.length) {
     return _items;
   }
+  _items = cachedArr;
+  return _items;
+}
 }
 
 function getItem(id) {
@@ -146,7 +152,7 @@ async function addOperation({ code, name, qty, from, type }) {
           body: { code, name, qty, from, type }
         }
       });
-
+      _localDirty = true;
       // оптимистично обновим локально список (если есть этот товар)
       const clean = String(code || '').replace(/\s+/g, '');
       const local = _items.find(i => i.code === clean) || null;
@@ -223,6 +229,7 @@ async function createTransfer({ itemId, toObjectId, qty, damaged = false, commen
           body: { itemId, toObjectId, qty: Number(qty), damaged: !!damaged, comment: String(comment || '') }
         }
       });
+      _localDirty = true;
       return { ok: true, queued: true };
     }
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
@@ -377,7 +384,7 @@ window.store = {
   logout,
   currentUserObj,
   changePassword,
-  
+
 queueCount,
 
   getObjects,
