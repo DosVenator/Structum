@@ -356,6 +356,128 @@ async function pollTransferUpdates() {
   // чтобы badge/списки обновлялись
   await updateTransferBadge();
 }
+
+// ================================
+// PUSH client (SW + subscribe)
+// ================================
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(ch => ch.charCodeAt(0)));
+}
+
+// простой "пик" для онлайн-режима (когда вкладка видима)
+function playOnlineBeep() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g);
+    g.connect(ctx.destination);
+
+    o.type = 'sine';
+    o.frequency.value = 880;
+    g.gain.value = 0.08;
+
+    o.start();
+    setTimeout(() => {
+      o.stop();
+      ctx.close().catch(() => {});
+    }, 160);
+  } catch {}
+}
+
+async function initPushIfPossible() {
+  try {
+    const u = await store.currentUserObj();
+    if (!u) return;
+    // можно включать только для user-ролей (как тебе надо)
+    if (u.role !== 'user') return;
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    // регистрируем SW
+    const reg = await navigator.serviceWorker.register('/sw.js');
+
+    // слушаем сообщения от SW (когда приложение видно)
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const msg = event.data || {};
+      if (msg.type === 'PUSH_EVENT') {
+        const p = msg.payload || {};
+        // показываем toast + звук внутри страницы
+        if (p?.body) appToast(p.body);
+        else if (p?.title) appToast(p.title);
+
+        playOnlineBeep();
+
+        // можно обновить badge/списки
+        updateTransferBadge?.().catch?.(() => {});
+      }
+      if (msg.type === 'OPEN_URL' && msg.url) {
+        // если надо — можно роутить, но у нас одна страница
+      }
+    });
+
+    // если уже разрешено — подписываемся молча
+    if (Notification.permission === 'granted') {
+      const pk = await store.getPushPublicKey();
+      if (!pk.ok) return;
+
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        await store.pushSubscribe(existing);
+        return;
+      }
+
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(pk.publicKey)
+      });
+
+      await store.pushSubscribe(sub);
+      return;
+    }
+
+    // если пользователь еще не дал разрешение — попросим один раз (после логина)
+    if (Notification.permission === 'default') {
+      // можно мягко: через confirm
+      openConfirm({
+        title: 'Уведомления',
+        text: 'Разрешить уведомления о передачах? Тогда вы увидите их даже на заблокированном экране.',
+        yesText: 'Разрешить',
+        onYes: async () => {
+          const perm = await Notification.requestPermission();
+          if (perm !== 'granted') {
+            appToast('Уведомления не разрешены');
+            return;
+          }
+          const pk = await store.getPushPublicKey();
+          if (!pk.ok) return;
+
+          const existing = await reg.pushManager.getSubscription();
+          if (existing) {
+            await store.pushSubscribe(existing);
+            appToast('✅ Уведомления включены');
+            return;
+          }
+
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(pk.publicKey)
+          });
+
+          await store.pushSubscribe(sub);
+          appToast('✅ Уведомления включены');
+        }
+      });
+    }
+  } catch (e) {
+    console.log('initPushIfPossible error', e);
+  }
+}
 // ================================
 // Modals: writeoff
 // ================================
@@ -1367,6 +1489,7 @@ window.__transferBadgeTimer = setInterval(() => {
 }, 8000); // можно 8-10 сек
 
   await renderList(searchInput.value);
+  await initPushIfPossible();
   renderAdmin();
 }
 

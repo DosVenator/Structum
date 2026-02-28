@@ -16,6 +16,113 @@ app.set('json replacer', (key, value) =>
 
 const prisma = new PrismaClient();
 
+// ================================
+// PUSH (Web Push)
+// ================================
+const webpush = require('web-push');
+
+const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+
+const PUSH_ENABLED = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+
+if (PUSH_ENABLED) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.warn('⚠️ PUSH disabled: VAPID keys are missing');
+}
+
+async function sendPushToSubscriptions(subs, payloadObj) {
+  if (!PUSH_ENABLED) return;
+
+  const payload = JSON.stringify(payloadObj || {});
+  await Promise.allSettled(subs.map(async (s) => {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: s.endpoint,
+          keys: { p256dh: s.p256dh, auth: s.auth }
+        },
+        payload
+      );
+    } catch (e) {
+      // если подписка умерла — удаляем (410/404)
+      const status = e?.statusCode || e?.status || 0;
+      if (status === 404 || status === 410) {
+        try {
+          await prisma.pushSubscription.delete({ where: { endpoint: s.endpoint } });
+        } catch {}
+      } else {
+        console.warn('push send error', status, e?.message || e);
+      }
+    }
+  }));
+}
+
+async function sendPushToObject(objectId, payloadObj) {
+  if (!PUSH_ENABLED) return;
+  if (!objectId) return;
+
+  const subs = await prisma.pushSubscription.findMany({
+    where: { objectId: String(objectId) }
+  });
+
+  if (!subs.length) return;
+  await sendPushToSubscriptions(subs, payloadObj);
+}
+
+// Публичный ключ (клиенту нужен)
+app.get('/api/push/public-key', requireAuth, (req, res) => {
+  if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
+  res.json({ ok: true, publicKey: VAPID_PUBLIC_KEY });
+});
+
+// Подписка
+app.post('/api/push/subscribe', requireAuth, async (req, res, next) => {
+  try {
+    if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
+
+    const u = req.session.user;
+    const sub = req.body?.subscription;
+
+    const endpoint = String(sub?.endpoint || '').trim();
+    const p256dh = String(sub?.keys?.p256dh || '').trim();
+    const auth = String(sub?.keys?.auth || '').trim();
+
+    if (!endpoint || !p256dh || !auth) {
+      return res.status(400).json({ ok: false, error: 'bad-subscription' });
+    }
+
+    const expirationTime = sub?.expirationTime ? BigInt(Math.floor(Number(sub.expirationTime))) : null;
+
+    await prisma.pushSubscription.upsert({
+      where: { endpoint },
+      update: {
+        p256dh,
+        auth,
+        expirationTime,
+        userId: u?.id || null,
+        objectId: u?.objectId || null,
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 300)
+      },
+      create: {
+        endpoint,
+        p256dh,
+        auth,
+        expirationTime,
+        userId: u?.id || null,
+        objectId: u?.objectId || null,
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 300)
+      }
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
@@ -637,6 +744,16 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
     res.json({ ok: true, transfer: result.transfer });
+    // ✅ PUSH: уведомляем получателя о новой входящей передаче
+    try {
+      const toObj = await prisma.object.findUnique({ where: { id: result.transfer.toObjectId } });
+      await sendPushToObject(result.transfer.toObjectId, {
+        title: '📥 Новая передача',
+        body: `${result.transfer.name} ×${result.transfer.qty} (отправлено на склад: ${toObj?.name || ''})`,
+        tag: `tr-${result.transfer.id}`,
+        data: { url: '/' , kind: 'transfer-created', transferId: result.transfer.id }
+      });
+    } catch {}
   } catch (e) {
     next(e);
   }
@@ -876,6 +993,17 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
     res.json({ ok: true, transfer: result.transfer });
+    // ✅ PUSH: уведомляем отправителя, что приняли
+    try {
+      const t = result.transfer;
+      const toObj = await prisma.object.findUnique({ where: { id: t.toObjectId } });
+      await sendPushToObject(t.fromObjectId, {
+        title: '✅ Передача принята',
+        body: `${toObj?.name || 'Склад'} принял: ${t.name} ×${t.qty}`,
+        tag: `tr-${t.id}`,
+        data: { url: '/', kind: 'transfer-accepted', transferId: t.id }
+      });
+    } catch {}
   } catch (e) {
     next(e);
   }
@@ -905,6 +1033,17 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
     res.json({ ok: true, transfer: result.transfer });
+     // ✅ PUSH: уведомляем отправителя, что отказались
+    try {
+      const t = result.transfer;
+      const toObj = await prisma.object.findUnique({ where: { id: t.toObjectId } });
+      await sendPushToObject(t.fromObjectId, {
+        title: '⛔ Передача отклонена',
+        body: `${toObj?.name || 'Склад'} отказался принять: ${t.name} ×${t.qty}. Баланс не изменился.`,
+        tag: `tr-${t.id}`,
+        data: { url: '/', kind: 'transfer-rejected', transferId: t.id }
+      });
+    } catch {}
   } catch (e) {
     next(e);
   }

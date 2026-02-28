@@ -277,6 +277,23 @@ async function deleteItem(id) {
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
+async function getPushPublicKey() {
+  try {
+    const r = await api('/api/push/public-key');
+    return { ok: true, publicKey: r.publicKey };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
+
+async function pushSubscribe(subscription) {
+  try {
+    await api('/api/push/subscribe', { method: 'POST', body: { subscription } });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
 
 window.store = {
   loginUser,
@@ -304,7 +321,9 @@ window.store = {
   rejectTransfer,
   getTransferDetails,
   getTransferUpdates,
-  
+  getPushPublicKey,
+  pushSubscribe,
+
   // admin
   getUsers,
   adminCreateObject,
