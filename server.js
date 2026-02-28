@@ -72,6 +72,49 @@ async function sendPushToObject(objectId, payloadObj) {
   await sendPushToSubscriptions(subs, payloadObj);
 }
 
+
+// ---- request logger ----
+app.use((req, res, next) => {
+  const t0 = Date.now();
+  res.on('finish', () => {
+    console.log(`${res.statusCode} ${req.method} ${req.originalUrl} ${Date.now() - t0}ms`);
+  });
+  next();
+});
+
+// ---- STATIC FIRST ----
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ---- Healthcheck ----
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
+// ---- parsers only for API ----
+app.use('/api', express.json());
+app.use('/api', express.urlencoded({ extended: true }));
+
+// ---- sessions only for API ----
+app.use(
+  '/api',
+  session({
+    store: new pgSession({
+      pool,
+      tableName: 'session',
+      createTableIfMissing: true
+    }),
+    name: 'inv.sid',
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    proxy: true, // важно за прокси
+    cookie: {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: 'auto', // ✅ ключевое: сам определит по https (при trust proxy)
+      maxAge: 1000 * 60 * 60 * 24 * 14
+    }
+  })
+);
 // Публичный ключ (клиенту нужен)
 app.get('/api/push/public-key', requireAuth, (req, res) => {
   if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
@@ -151,49 +194,6 @@ const pool = new Pool({
 
 const SESSION_SECRET =
   process.env.SESSION_SECRET || process.env.JWT_SECRET || 'dev-secret-change-me';
-
-// ---- request logger ----
-app.use((req, res, next) => {
-  const t0 = Date.now();
-  res.on('finish', () => {
-    console.log(`${res.statusCode} ${req.method} ${req.originalUrl} ${Date.now() - t0}ms`);
-  });
-  next();
-});
-
-// ---- STATIC FIRST ----
-app.use(express.static(path.join(__dirname, 'public')));
-
-// ---- Healthcheck ----
-app.get('/health', (req, res) => res.status(200).send('OK'));
-
-// ---- parsers only for API ----
-app.use('/api', express.json());
-app.use('/api', express.urlencoded({ extended: true }));
-
-// ---- sessions only for API ----
-app.use(
-  '/api',
-  session({
-    store: new pgSession({
-      pool,
-      tableName: 'session',
-      createTableIfMissing: true
-    }),
-    name: 'inv.sid',
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    proxy: true, // важно за прокси
-    cookie: {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: 'auto', // ✅ ключевое: сам определит по https (при trust proxy)
-      maxAge: 1000 * 60 * 60 * 24 * 14
-    }
-  })
-);
 
 // --- helpers ---
 function requireAuth(req, res, next) {
