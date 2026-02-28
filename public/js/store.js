@@ -260,7 +260,15 @@ async function adminDeleteUser(id) {
 }
 
 // stubs
-async function deleteItem() { return false; }
+async function deleteItem(id) {
+  try {
+    await api(`/api/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    _items = _items.filter(x => x.id !== id);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
 
 window.store = {
   loginUser,
@@ -287,7 +295,7 @@ window.store = {
   acceptTransfer,
   rejectTransfer,
   getTransferDetails,
-  
+
   // admin
   getUsers,
   adminCreateObject,

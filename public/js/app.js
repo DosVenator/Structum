@@ -1424,17 +1424,25 @@ async function renderList(filter=''){
   );
 
   listEl.querySelectorAll('[data-d]').forEach(btn => btn.onclick = () => {
-    const id = btn.getAttribute('data-d');
-    const item = store.getItem(id);
-    if (!item) return;
+  const id = btn.getAttribute('data-d');
+  const item = store.getItem(id);
+  if (!item) return;
 
-    openConfirm({
-      title: 'Удалить позицию?',
-      text: `Удаление через API будет позже. Сейчас нельзя удалить: "${item.name}"`,
-      yesText: 'Ок',
-      onYes: () => {}
-    });
+  openConfirm({
+    title: 'Удалить позицию?',
+    text: `Удалить "${item.name}" со склада? (История операций сохранится)`,
+    yesText: 'Удалить',
+    onYes: async () => {
+      const r = await store.deleteItem(id);
+      if (!r.ok) {
+        appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+        return;
+      }
+      appToast('✅ Удалено');
+      await renderList(searchInput.value);
+    }
   });
+});
 
   listEl.querySelectorAll('[data-plus]').forEach(btn => btn.onclick = () => {
     const id = btn.getAttribute('data-plus');

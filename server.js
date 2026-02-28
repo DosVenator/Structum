@@ -377,8 +377,8 @@ app.get('/api/items', requireAuth, async (req, res, next) => {
     const requestedObjectId = String(req.query.objectId || 'all');
     const objectId = u.role === 'admin' ? requestedObjectId : u.objectId;
 
-    const where = {};
-    if (objectId && objectId !== 'all') where.objectId = objectId;
+    const where = { active: true };
+if (objectId && objectId !== 'all') where.objectId = objectId;
 
     const items = await prisma.item.findMany({
       where,
@@ -390,7 +390,30 @@ app.get('/api/items', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
+// ✅ delete item (soft)
+app.delete('/api/items/:id', requireAuth, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const id = String(req.params.id);
 
+    const item = await prisma.item.findUnique({ where: { id } });
+    if (!item) return res.status(404).json({ ok: false, error: 'not-found' });
+
+    // user может удалить только на своём складе
+    if (u.role !== 'admin' && item.objectId !== u.objectId) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    await prisma.item.update({
+      where: { id },
+      data: { active: false }
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
 app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -469,10 +492,10 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     const { ts, time } = nowMeta();
 
     const item = await prisma.item.upsert({
-      where: { objectId_code: { objectId: u.objectId, code } },
-      update: {},
-      create: { objectId: u.objectId, code, name, quantity: 0 }
-    });
+  where: { objectId_code: { objectId: u.objectId, code } },
+  update: { active: true }, // ✅
+  create: { objectId: u.objectId, code, name, quantity: 0, active: true } // ✅
+});
 
     const newQty = type === 'in' ? item.quantity + qty : Math.max(0, item.quantity - qty);
 
