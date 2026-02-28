@@ -119,28 +119,43 @@ app.use('/api', express.urlencoded({ extended: true }));
 // ================================
 // Sessions only for /api
 // ================================
+const sessionStore = new pgSession({
+  pool,
+  tableName: 'session',
+  createTableIfMissing: true
+});
+
+// ✅ супер важно: увидеть реальные ошибки store
+sessionStore.on('error', (e) => {
+  console.error('❌ SESSION STORE ERROR:', e);
+});
+
 app.use(
   '/api',
   session({
-    store: new pgSession({
-      pool,
-      tableName: 'session',
-      createTableIfMissing: true
-    }),
+    store: sessionStore,
     name: 'inv.sid',
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    proxy: true, // важно для Railway/https
+    proxy: true,
     cookie: {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
-      secure: 'auto', // сам определит https при trust proxy
+      secure: 'auto',
       maxAge: 1000 * 60 * 60 * 24 * 14
     }
   })
 );
+app.use('/api', (req, res, next) => {
+  if (req.path === '/me') {
+    console.log('🍪 /api/me cookie:', req.headers.cookie || '(none)');
+    console.log('🧩 sessionID:', req.sessionID);
+    console.log('👤 session.user:', req.session?.user || null);
+  }
+  next();
+});
 
 // ================================
 // Helpers / guards

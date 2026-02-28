@@ -391,7 +391,10 @@ async function pollTransferUpdates() {
 
   // чтобы badge/списки обновлялись
   await updateTransferBadge();
-  await renderList(document.getElementById('search')?.value || '');
+   // ✅ подтягиваем актуальные остатки и перерисовываем список отправителя
+  await store.getItems();                 // для user возьмёт его склад
+  await renderList(searchInput.value);    // обновит UI сразу
+  // await renderList(document.getElementById('search')?.value || '');
 }
 
 // ================================
@@ -469,6 +472,10 @@ async function initPushIfPossible() {
 
         
         needRefreshAfterPush = true;
+         // ✅ если страница прямо сейчас видима — обновим сразу, без ожидания смены вкладки
+        if (document.visibilityState === 'visible') {
+          pollTransferUpdates().catch(() => {});
+        }
       }
       if (msg.type === 'OPEN_URL' && msg.url) {
         // если надо — можно роутить, но у нас одна страница
