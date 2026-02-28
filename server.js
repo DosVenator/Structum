@@ -116,6 +116,20 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Healthcheck
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
+// ================================
+// ✅ NO-CACHE for API (fix 304 + sessions + updates)
+// ================================
+app.disable('etag'); // или: app.set('etag', false);
+
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  next();
+});
+
+
 // Parsers only for /api
 app.use('/api', express.json());
 app.use('/api', express.urlencoded({ extended: true }));
