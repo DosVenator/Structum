@@ -930,7 +930,15 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       if (!senderItem) return { err: { status: 400, error: 'sender-item-missing' } };
       if (senderItem.quantity < tr.qty) return { err: { status: 400, error: 'sender-not-enough' } };
 
-      await tx.item.update({ where: { id: senderItem.id }, data: { quantity: senderItem.quantity - tr.qty } });
+      const newSenderQty = senderItem.quantity - tr.qty;
+
+await tx.item.update({
+  where: { id: senderItem.id },
+  data: {
+    quantity: newSenderQty,
+    active: newSenderQty > 0
+  }
+});
 
       await tx.operation.create({
         data: {

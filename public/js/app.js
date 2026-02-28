@@ -391,6 +391,7 @@ async function pollTransferUpdates() {
 
   // чтобы badge/списки обновлялись
   await updateTransferBadge();
+  await renderList(document.getElementById('search')?.value || '');
 }
 
 // ================================

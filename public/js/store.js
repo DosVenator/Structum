@@ -221,17 +221,31 @@ async function createTransfer({ itemId, toObjectId, qty, damaged = false, commen
     return { ok: true, transfer: r.transfer, queued: false };
   } catch (e) {
     if (e?.data?.error === 'network' || e.status === 0) {
-      await enqueueJob({
-        kind: 'transfer-create',
-        request: {
-          url: '/api/transfers',
-          method: 'POST',
-          body: { itemId, toObjectId, qty: Number(qty), damaged: !!damaged, comment: String(comment || '') }
-        }
-      });
-      _localDirty = true;
-      return { ok: true, queued: true };
+  await enqueueJob({
+    kind: 'transfer-create',
+    request: {
+      url: '/api/transfers',
+      method: 'POST',
+      body: { itemId, toObjectId, qty: Number(qty), damaged: !!damaged, comment: String(comment || '') }
     }
+  });
+
+  _localDirty = true;
+
+  // ✅ ОПТИМИСТИЧНО: сразу уменьшаем остаток на текущем складе
+  const n = Number(qty);
+  const it = _items.find(x => x.id === itemId);
+  if (it && Number.isFinite(n) && n > 0) {
+    it.quantity = Math.max(0, Number(it.quantity || 0) - n);
+
+    // если стало 0 — убираем из списка (как ты и ожидаешь)
+    if (it.quantity === 0) {
+      _items = _items.filter(x => x.id !== itemId);
+    }
+  }
+
+  return { ok: true, queued: true };
+}
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
