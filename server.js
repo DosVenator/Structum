@@ -5,25 +5,33 @@ const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const { PrismaClient } = require('@prisma/client');
+const webpush = require('web-push');
 
 const app = express();
 app.set('trust proxy', 1);
 
 // ✅ BigInt-safe JSON
-app.set('json replacer', (key, value) =>
-  typeof value === 'bigint' ? value.toString() : value
-);
+app.set('json replacer', (key, value) => (typeof value === 'bigint' ? value.toString() : value));
 
 const prisma = new PrismaClient();
 
 // ================================
+// DB pool (для connect-pg-simple)
+// ================================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+const SESSION_SECRET =
+  process.env.SESSION_SECRET || process.env.JWT_SECRET || 'dev-secret-change-me';
+
+// ================================
 // PUSH (Web Push)
 // ================================
-const webpush = require('web-push');
-
-const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
 
 const PUSH_ENABLED = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 
@@ -37,27 +45,25 @@ async function sendPushToSubscriptions(subs, payloadObj) {
   if (!PUSH_ENABLED) return;
 
   const payload = JSON.stringify(payloadObj || {});
-  await Promise.allSettled(subs.map(async (s) => {
-    try {
-      await webpush.sendNotification(
-        {
-          endpoint: s.endpoint,
-          keys: { p256dh: s.p256dh, auth: s.auth }
-        },
-        payload
-      );
-    } catch (e) {
-      // если подписка умерла — удаляем (410/404)
-      const status = e?.statusCode || e?.status || 0;
-      if (status === 404 || status === 410) {
-        try {
-          await prisma.pushSubscription.delete({ where: { endpoint: s.endpoint } });
-        } catch {}
-      } else {
-        console.warn('push send error', status, e?.message || e);
+  await Promise.allSettled(
+    subs.map(async (s) => {
+      try {
+        await webpush.sendNotification(
+          { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+          payload
+        );
+      } catch (e) {
+        const status = e?.statusCode || e?.status || 0;
+        if (status === 404 || status === 410) {
+          try {
+            await prisma.pushSubscription.delete({ where: { endpoint: s.endpoint } });
+          } catch {}
+        } else {
+          console.warn('push send error', status, e?.message || e);
+        }
       }
-    }
-  }));
+    })
+  );
 }
 
 async function sendPushToObject(objectId, payloadObj) {
@@ -72,27 +78,30 @@ async function sendPushToObject(objectId, payloadObj) {
   await sendPushToSubscriptions(subs, payloadObj);
 }
 
-
-// ---- request logger ----
+// ================================
+// Request logger
+// ================================
 app.use((req, res, next) => {
   const t0 = Date.now();
-  res.on('finish', () => {
-    console.log(`${res.statusCode} ${req.method} ${req.originalUrl} ${Date.now() - t0}ms`);
-  });
+  res.on('finish', () => console.log(`${res.statusCode} ${req.method} ${req.originalUrl} ${Date.now() - t0}ms`));
   next();
 });
 
-// ---- STATIC FIRST ----
+// ================================
+// Static + health
+// ================================
 app.use(express.static(path.join(__dirname, 'public')));
-
-// ---- Healthcheck ----
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
-// ---- parsers only for API ----
+// ================================
+// Parsers only for /api
+// ================================
 app.use('/api', express.json());
 app.use('/api', express.urlencoded({ extended: true }));
 
-// ---- sessions only for API ----
+// ================================
+// Sessions only for /api  ✅ (pool уже объявлен выше)
+// ================================
 app.use(
   '/api',
   session({
@@ -105,23 +114,69 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    proxy: true, // важно за прокси
+    proxy: true,
     cookie: {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
-      secure: 'auto', // ✅ ключевое: сам определит по https (при trust proxy)
+      secure: 'auto', // ✅ за прокси/https сам
       maxAge: 1000 * 60 * 60 * 24 * 14
     }
   })
 );
-// Публичный ключ (клиенту нужен)
+
+// ================================
+// Helpers / guards
+// ================================
+function requireAuth(req, res, next) {
+  if (!req.session?.user) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  next();
+}
+function requireAdmin(req, res, next) {
+  if (req.session?.user?.role !== 'admin') return res.status(403).json({ ok: false, error: 'forbidden' });
+  next();
+}
+function requireUser(req, res, next) {
+  if (req.session?.user?.role !== 'user') return res.status(403).json({ ok: false, error: 'forbidden' });
+  next();
+}
+
+function cleanName(s) {
+  return String(s || '').trim();
+}
+function cleanLogin(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+function isStrongEnoughPassword(p) {
+  return String(p || '').length >= 4;
+}
+
+// ✅ Киевское время
+function kyivTimeString(date = new Date()) {
+  return new Intl.DateTimeFormat('uk-UA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(date);
+}
+function nowMeta() {
+  const ts = BigInt(Date.now());
+  const time = kyivTimeString(new Date());
+  return { ts, time };
+}
+
+// ================================
+// PUSH routes
+// ================================
 app.get('/api/push/public-key', requireAuth, (req, res) => {
   if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
   res.json({ ok: true, publicKey: VAPID_PUBLIC_KEY });
 });
 
-// Подписка
 app.post('/api/push/subscribe', requireAuth, async (req, res, next) => {
   try {
     if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
@@ -133,9 +188,7 @@ app.post('/api/push/subscribe', requireAuth, async (req, res, next) => {
     const p256dh = String(sub?.keys?.p256dh || '').trim();
     const auth = String(sub?.keys?.auth || '').trim();
 
-    if (!endpoint || !p256dh || !auth) {
-      return res.status(400).json({ ok: false, error: 'bad-subscription' });
-    }
+    if (!endpoint || !p256dh || !auth) return res.status(400).json({ ok: false, error: 'bad-subscription' });
 
     const expirationTime = sub?.expirationTime ? BigInt(Math.floor(Number(sub.expirationTime))) : null;
 
@@ -165,8 +218,7 @@ app.post('/api/push/subscribe', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
-// Тестовый пуш (самому себе на текущий объект)
-// Вызов: POST /api/push/test
+
 app.post('/api/push/test', requireAuth, async (req, res) => {
   try {
     if (!PUSH_ENABLED) return res.status(503).json({ ok: false, error: 'push-disabled' });
@@ -187,71 +239,18 @@ app.post('/api/push/test', requireAuth, async (req, res) => {
     res.status(500).json({ ok: false, error: 'server' });
   }
 });
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
 
-const SESSION_SECRET =
-  process.env.SESSION_SECRET || process.env.JWT_SECRET || 'dev-secret-change-me';
-
-// --- helpers ---
-function requireAuth(req, res, next) {
-  if (!req.session?.user) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  next();
-}
-function requireAdmin(req, res, next) {
-  if (req.session?.user?.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'forbidden' });
-  next();
-}
-function requireUser(req, res, next) {
-  if (req.session?.user?.role !== 'user')
-    return res.status(403).json({ ok: false, error: 'forbidden' });
-  next();
-}
-
-function cleanName(s) {
-  return String(s || '').trim();
-}
-function cleanLogin(s) {
-  return String(s || '').trim().toLowerCase().replace(/\s+/g, '');
-}
-function isStrongEnoughPassword(p) {
-  return String(p || '').length >= 4;
-}
-
-// ✅ Киевское время
-function kyivTimeString(date = new Date()) {
-  return new Intl.DateTimeFormat('uk-UA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).format(date);
-}
-
-function nowMeta() {
-  const ts = BigInt(Date.now());
-  const time = kyivTimeString(new Date());
-  return { ts, time };
-}
-
-// --- AUTH ---
+// ================================
+// AUTH
+// ================================
 app.post('/api/login', async (req, res, next) => {
   try {
     const login = cleanLogin(req.body.login);
     const password = String(req.body.password || '').trim();
-
     if (!login || !password) return res.status(400).json({ ok: false, error: 'bad-request' });
 
     const user = await prisma.user.findUnique({ where: { login } });
     if (!user) return res.status(401).json({ ok: false, error: 'invalid' });
-
-    // ✅ если пользователь “удалён/деактивирован”
     if (user.active === false) return res.status(403).json({ ok: false, error: 'inactive' });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
@@ -293,32 +292,21 @@ app.get('/api/me', (req, res) => {
   res.json({ ok: true, user: req.session?.user || null });
 });
 
-/* ===========================
-   ✅ Change password (реально)
-   =========================== */
-// body: { oldPassword?, newPassword }
 app.post('/api/change-password', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
-
     const oldPassword = String(req.body.oldPassword || '');
     const newPassword = String(req.body.newPassword || '');
 
-    if (!isStrongEnoughPassword(newPassword)) {
-      return res.status(400).json({ ok: false, error: 'weak-password' });
-    }
+    if (!isStrongEnoughPassword(newPassword)) return res.status(400).json({ ok: false, error: 'weak-password' });
 
     const user = await prisma.user.findUnique({ where: { id: u.id } });
     if (!user) return res.status(404).json({ ok: false, error: 'not-found' });
     if (user.active === false) return res.status(403).json({ ok: false, error: 'inactive' });
 
-    // ✅ если это НЕ обязательная смена (mustChangePassword=false),
-    // то требуем старый пароль и проверяем его
     const forced = user.mustChangePassword === true;
-
     if (!forced) {
       if (!oldPassword) return res.status(400).json({ ok: false, error: 'old-required' });
-
       const okOld = await bcrypt.compare(oldPassword, user.passwordHash);
       if (!okOld) return res.status(401).json({ ok: false, error: 'old-invalid' });
     }
@@ -330,7 +318,6 @@ app.post('/api/change-password', requireAuth, async (req, res, next) => {
       data: { passwordHash: hash, mustChangePassword: false }
     });
 
-    // ✅ обновляем сессию сразу
     req.session.user.mustChangePassword = false;
     req.session.save(() => res.json({ ok: true }));
   } catch (e) {
@@ -338,10 +325,11 @@ app.post('/api/change-password', requireAuth, async (req, res, next) => {
   }
 });
 
-// --- OBJECTS ---
+// ================================
+// OBJECTS
+// ================================
 app.get('/api/objects', requireAuth, async (req, res, next) => {
   try {
-    // можно отдавать всем, но чтобы скрыть удалённые — фильтруем
     const objects = await prisma.object.findMany({
       where: { active: true },
       orderBy: { name: 'asc' }
@@ -352,20 +340,15 @@ app.get('/api/objects', requireAuth, async (req, res, next) => {
   }
 });
 
-/* ===========================
-   ADMIN: Objects & Users
-   =========================== */
-
-// создать склад
+// ================================
+// ADMIN: Objects & Users
+// ================================
 app.post('/api/admin/objects', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const name = cleanName(req.body.name);
     if (!name) return res.status(400).json({ ok: false, error: 'name-required' });
 
-    const created = await prisma.object.create({
-      data: { name, active: true }
-    });
-
+    const created = await prisma.object.create({ data: { name, active: true } });
     res.json({ ok: true, object: created });
   } catch (e) {
     if (e?.code === 'P2002') return res.status(409).json({ ok: false, error: 'object-exists' });
@@ -373,15 +356,12 @@ app.post('/api/admin/objects', requireAuth, requireAdmin, async (req, res, next)
   }
 });
 
-// ✅ “удалить” склад = deactivate
 app.delete('/api/admin/objects/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.params.id);
-
     const obj = await prisma.object.findUnique({ where: { id } });
     if (!obj) return res.status(404).json({ ok: false, error: 'not-found' });
 
-    // деактивируем склад + деактивируем пользователей этого склада
     await prisma.$transaction(async (tx) => {
       await tx.object.update({ where: { id }, data: { active: false } });
       await tx.user.updateMany({ where: { objectId: id }, data: { active: false } });
@@ -393,16 +373,12 @@ app.delete('/api/admin/objects/:id', requireAuth, requireAdmin, async (req, res,
   }
 });
 
-// список пользователей (без passwordHash)
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const meId = req.session.user.id;
 
     const users = await prisma.user.findMany({
-      where: {
-        active: true,
-        NOT: { id: meId }
-      },
+      where: { active: true, NOT: { id: meId } },
       orderBy: { createdAt: 'desc' },
       take: 500,
       include: { object: { select: { id: true, name: true } } }
@@ -410,7 +386,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =>
 
     res.json({
       ok: true,
-      users: users.map(u => ({
+      users: users.map((u) => ({
         id: u.id,
         login: u.login,
         role: u.role,
@@ -426,12 +402,11 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =>
   }
 });
 
-// создать пользователя
 app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const login = cleanLogin(req.body.login);
     const password = String(req.body.password || '');
-    const role = String(req.body.role || 'user').trim(); // 'admin' | 'user'
+    const role = String(req.body.role || 'user').trim();
     const objectIdRaw = req.body.objectId;
 
     if (!login) return res.status(400).json({ ok: false, error: 'login-required' });
@@ -476,50 +451,40 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res, next) =
   }
 });
 
-// ✅ “удалить” пользователя = deactivate
 app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.params.id);
-
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(404).json({ ok: false, error: 'not-found' });
 
-    // нельзя удалить себя
     if (req.session?.user?.id === id) return res.status(400).json({ ok: false, error: 'cannot-delete-self' });
 
-    await prisma.user.update({
-      where: { id },
-      data: { active: false }
-    });
-
+    await prisma.user.update({ where: { id }, data: { active: false } });
     res.json({ ok: true });
   } catch (e) {
     next(e);
   }
 });
 
-// --- ITEMS ---
+// ================================
+// ITEMS
+// ================================
 app.get('/api/items', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
-
     const requestedObjectId = String(req.query.objectId || 'all');
     const objectId = u.role === 'admin' ? requestedObjectId : u.objectId;
 
     const where = { active: true };
-if (objectId && objectId !== 'all') where.objectId = objectId;
+    if (objectId && objectId !== 'all') where.objectId = objectId;
 
-    const items = await prisma.item.findMany({
-      where,
-      orderBy: { name: 'asc' }
-    });
-
+    const items = await prisma.item.findMany({ where, orderBy: { name: 'asc' } });
     res.json({ ok: true, items });
   } catch (e) {
     next(e);
   }
 });
-// ✅ delete item (soft)
+
 app.delete('/api/items/:id', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -528,21 +493,15 @@ app.delete('/api/items/:id', requireAuth, async (req, res, next) => {
     const item = await prisma.item.findUnique({ where: { id } });
     if (!item) return res.status(404).json({ ok: false, error: 'not-found' });
 
-    // user может удалить только на своём складе
-    if (u.role !== 'admin' && item.objectId !== u.objectId) {
-      return res.status(403).json({ ok: false, error: 'forbidden' });
-    }
+    if (u.role !== 'admin' && item.objectId !== u.objectId) return res.status(403).json({ ok: false, error: 'forbidden' });
 
-    await prisma.item.update({
-      where: { id },
-      data: { active: false }
-    });
-
+    await prisma.item.update({ where: { id }, data: { active: false } });
     res.json({ ok: true });
   } catch (e) {
     next(e);
   }
 });
+
 app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -552,46 +511,30 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
     const defaultFrom = nowMs - 7 * 24 * 60 * 60 * 1000;
 
     const fromTsNum = req.query.fromTs !== undefined ? Number(req.query.fromTs) : defaultFrom;
-    const toTsNum   = req.query.toTs   !== undefined ? Number(req.query.toTs)   : nowMs;
-
-    if (!Number.isFinite(fromTsNum) || !Number.isFinite(toTsNum)) {
-      return res.status(400).json({ ok: false, error: 'bad-ts' });
-    }
+    const toTsNum = req.query.toTs !== undefined ? Number(req.query.toTs) : nowMs;
+    if (!Number.isFinite(fromTsNum) || !Number.isFinite(toTsNum)) return res.status(400).json({ ok: false, error: 'bad-ts' });
 
     const fromTs = BigInt(Math.max(0, Math.floor(fromTsNum)));
-    const toTs   = BigInt(Math.max(0, Math.floor(toTsNum)));
+    const toTs = BigInt(Math.max(0, Math.floor(toTsNum)));
 
-    const item = await prisma.item.findUnique({
-      where: { id },
-      include: { object: true }
-    });
-
+    const item = await prisma.item.findUnique({ where: { id }, include: { object: true } });
     if (!item) return res.status(404).json({ ok: false, error: 'not-found' });
 
-    if (u.role !== 'admin' && item.objectId !== u.objectId) {
-      return res.status(403).json({ ok: false, error: 'forbidden' });
-    }
+    if (u.role !== 'admin' && item.objectId !== u.objectId) return res.status(403).json({ ok: false, error: 'forbidden' });
 
-     const ops = await prisma.operation.findMany({
-      where: {
-        itemId: id,
-        ts: { gte: fromTs, lte: toTs }
-      },
+    const ops = await prisma.operation.findMany({
+      where: { itemId: id, ts: { gte: fromTs, lte: toTs } },
       orderBy: { ts: 'desc' },
       take: 500,
-      include: {
-        transfer: { select: { id: true, damaged: true, comment: true } }
-      }
+      include: { transfer: { select: { id: true, damaged: true, comment: true } } }
     });
 
-    const history = ops.map(op => ({
+    const history = ops.map((op) => ({
       type: op.type,
       qty: op.qty,
       from: op.from,
       time: op.time,
       ts: op.ts,
-
-      // ✅ NEW: метки для UI
       transferId: op.transfer?.id || null,
       damaged: op.transfer?.damaged === true,
       hasComment: !!(op.transfer?.comment && String(op.transfer.comment).trim())
@@ -603,7 +546,9 @@ app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
   }
 });
 
-// --- OPERATIONS (приход/расход) ---
+// ================================
+// OPERATIONS (in/out)
+// ================================
 app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -621,10 +566,10 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     const { ts, time } = nowMeta();
 
     const item = await prisma.item.upsert({
-  where: { objectId_code: { objectId: u.objectId, code } },
-  update: { active: true }, // ✅
-  create: { objectId: u.objectId, code, name, quantity: 0, active: true } // ✅
-});
+      where: { objectId_code: { objectId: u.objectId, code } },
+      update: { active: true },
+      create: { objectId: u.objectId, code, name, quantity: 0, active: true }
+    });
 
     const newQty = type === 'in' ? item.quantity + qty : Math.max(0, item.quantity - qty);
 
@@ -634,15 +579,7 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
         name,
         quantity: newQty,
         operations: {
-          create: {
-            type,
-            qty,
-            from,
-            ts,
-            time,
-            objectId: u.objectId,
-            userId: u.id
-          }
+          create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
         }
       }
     });
@@ -653,7 +590,9 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
   }
 });
 
-// --- REPORT (admin) ---
+// ================================
+// REPORT (admin)
+// ================================
 app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const objectId = String(req.query.objectId || 'all');
@@ -662,16 +601,12 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
 
     const fromTsNum = Number(req.query.fromTs || 0);
     const toTsNum = Number(req.query.toTs || Date.now());
-
-    if (!Number.isFinite(fromTsNum) || !Number.isFinite(toTsNum)) {
-      return res.status(400).json({ ok: false, error: 'bad-ts' });
-    }
+    if (!Number.isFinite(fromTsNum) || !Number.isFinite(toTsNum)) return res.status(400).json({ ok: false, error: 'bad-ts' });
 
     const fromTs = BigInt(Math.max(0, Math.floor(fromTsNum)));
     const toTs = BigInt(Math.max(0, Math.floor(toTsNum)));
 
     const where = { ts: { gte: fromTs, lte: toTs } };
-
     if (objectId !== 'all') where.objectId = objectId;
     if (type === 'in' || type === 'out') where.type = type;
     if (itemCode) where.item = { code: itemCode };
@@ -680,13 +615,10 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
       where,
       orderBy: { ts: 'desc' },
       take: 5000,
-      include: {
-        item: { select: { code: true, name: true } },
-        object: { select: { name: true } }
-      }
+      include: { item: { select: { code: true, name: true } }, object: { select: { name: true } } }
     });
 
-    const rows = ops.map(op => ({
+    const rows = ops.map((op) => ({
       ts: op.ts,
       time: op.time,
       objectId: op.objectId,
@@ -704,10 +636,9 @@ app.get('/api/report', requireAuth, requireAdmin, async (req, res, next) => {
   }
 });
 
-/* ===========================
-   TRANSFERS (как у тебя)
-   =========================== */
-
+// ================================
+// TRANSFERS
+// ================================
 app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -738,12 +669,12 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
         where: { fromObjectId: u.objectId, code: item.code, status: 'PENDING' },
         _sum: { qty: true }
       });
+
       const reserved = Number(pendingAgg?._sum?.qty || 0);
       const available = item.quantity - reserved;
-
       if (available < qty) return { err: { status: 400, error: 'not-enough' } };
 
-       const transfer = await tx.transfer.create({
+      const transfer = await tx.transfer.create({
         data: {
           code: item.code,
           name: item.name,
@@ -754,8 +685,6 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
           toObjectId,
           ts,
           time,
-
-          // ✅ NEW
           damaged,
           comment: safeComment
         }
@@ -765,15 +694,17 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
     });
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
+
     res.json({ ok: true, transfer: result.transfer });
-    // ✅ PUSH: уведомляем получателя о новой входящей передаче
+
+    // ✅ PUSH: уведомляем получателя
     try {
       const toObj = await prisma.object.findUnique({ where: { id: result.transfer.toObjectId } });
       await sendPushToObject(result.transfer.toObjectId, {
         title: '📥 Новая передача',
-        body: `${result.transfer.name} ×${result.transfer.qty} (отправлено на склад: ${toObj?.name || ''})`,
+        body: `${result.transfer.name} ×${result.transfer.qty} (получатель: ${toObj?.name || ''})`,
         tag: `tr-${result.transfer.id}`,
-        data: { url: '/' , kind: 'transfer-created', transferId: result.transfer.id }
+        data: { url: '/', kind: 'transfer-created', transferId: result.transfer.id }
       });
     } catch {}
   } catch (e) {
@@ -794,7 +725,7 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
 
     res.json({
       ok: true,
-       transfers: transfers.map(t => ({
+      transfers: transfers.map((t) => ({
         id: t.id,
         code: t.code,
         name: t.name,
@@ -803,8 +734,6 @@ app.get('/api/transfers/incoming', requireAuth, requireUser, async (req, res, ne
         ts: t.ts,
         fromObjectId: t.fromObjectId,
         fromObjectName: t.fromObject?.name || '',
-
-        // ✅ NEW
         damaged: t.damaged,
         comment: t.comment
       }))
@@ -827,7 +756,7 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
 
     res.json({
       ok: true,
-      transfers: transfers.map(t => ({
+      transfers: transfers.map((t) => ({
         id: t.id,
         code: t.code,
         name: t.name,
@@ -836,8 +765,6 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
         ts: t.ts,
         toObjectId: t.toObjectId,
         toObjectName: t.toObject?.name || '',
-
-        // ✅ NEW
         damaged: t.damaged,
         comment: t.comment
       }))
@@ -846,15 +773,14 @@ app.get('/api/transfers/outgoing', requireAuth, requireUser, async (req, res, ne
     next(e);
   }
 });
-// ✅ Updates for sender: accepted/rejected sinceTs
+
 app.get('/api/transfers/updates', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
 
     const sinceTsNum = Number(req.query.sinceTs || 0);
-    if (!Number.isFinite(sinceTsNum)) {
-      return res.status(400).json({ ok: false, error: 'bad-ts' });
-    }
+    if (!Number.isFinite(sinceTsNum)) return res.status(400).json({ ok: false, error: 'bad-ts' });
+
     const sinceTs = BigInt(Math.max(0, Math.floor(sinceTsNum)));
 
     const transfers = await prisma.transfer.findMany({
@@ -870,7 +796,7 @@ app.get('/api/transfers/updates', requireAuth, requireUser, async (req, res, nex
 
     res.json({
       ok: true,
-      updates: transfers.map(t => ({
+      updates: transfers.map((t) => ({
         id: t.id,
         code: t.code,
         name: t.name,
@@ -888,7 +814,7 @@ app.get('/api/transfers/updates', requireAuth, requireUser, async (req, res, nex
     next(e);
   }
 });
-// ✅ Transfer details (for history comment modal)
+
 app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -906,11 +832,9 @@ app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
 
     if (!tr) return res.status(404).json({ ok: false, error: 'not-found' });
 
-    // access control:
     if (u.role !== 'admin') {
-      if (tr.fromObjectId !== u.objectId && tr.toObjectId !== u.objectId) {
+      if (tr.fromObjectId !== u.objectId && tr.toObjectId !== u.objectId)
         return res.status(403).json({ ok: false, error: 'forbidden' });
-      }
     }
 
     res.json({
@@ -923,15 +847,12 @@ app.get('/api/transfers/:id', requireAuth, async (req, res, next) => {
         status: tr.status,
         ts: tr.ts,
         time: tr.time,
-
         damaged: tr.damaged === true,
         comment: tr.comment || '',
-
         fromObjectId: tr.fromObjectId,
         fromObjectName: tr.fromObject?.name || '',
         toObjectId: tr.toObjectId,
         toObjectName: tr.toObject?.name || '',
-
         createdByLogin: tr.createdBy?.login || '',
         actedByLogin: tr.actedBy?.login || '',
         actedTime: tr.actedTime || ''
@@ -977,8 +898,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
           objectId: tr.fromObjectId,
           itemId: senderItem.id,
           userId: tr.createdById,
-
-          // ✅ NEW
           transferId: tr.id
         }
       });
@@ -986,7 +905,7 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       const receiverItem = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
         update: { name: tr.name, quantity: { increment: tr.qty } },
-        create: { objectId: tr.toObjectId, code: tr.code, name: tr.name, quantity: tr.qty }
+        create: { objectId: tr.toObjectId, code: tr.code, name: tr.name, quantity: tr.qty, active: true }
       });
 
       await tx.operation.create({
@@ -999,8 +918,6 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
           objectId: tr.toObjectId,
           itemId: receiverItem.id,
           userId: u.id,
-
-          // ✅ NEW
           transferId: tr.id
         }
       });
@@ -1014,8 +931,10 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
     });
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
+
     res.json({ ok: true, transfer: result.transfer });
-    // ✅ PUSH: уведомляем отправителя, что приняли
+
+    // ✅ PUSH отправителю
     try {
       const t = result.transfer;
       const toObj = await prisma.object.findUnique({ where: { id: t.toObjectId } });
@@ -1054,8 +973,10 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
     });
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
+
     res.json({ ok: true, transfer: result.transfer });
-     // ✅ PUSH: уведомляем отправителя, что отказались
+
+    // ✅ PUSH отправителю
     try {
       const t = result.transfer;
       const toObj = await prisma.object.findUnique({ where: { id: t.toObjectId } });
@@ -1071,12 +992,14 @@ app.post('/api/transfers/:id/reject', requireAuth, requireUser, async (req, res,
   }
 });
 
-// Главная
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// ================================
+// Main page
+// ================================
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// ---- error handler ----
+// ================================
+// Error handler
+// ================================
 app.use((err, req, res, next) => {
   console.error('UNHANDLED ERROR:', {
     message: err?.message,
@@ -1084,14 +1007,8 @@ app.use((err, req, res, next) => {
     meta: err?.meta,
     stack: err?.stack
   });
-
   if (res.headersSent) return next(err);
-
-  res.status(500).json({
-    ok: false,
-    error: 'server',
-    code: err?.code || null
-  });
+  res.status(500).json({ ok: false, error: 'server', code: err?.code || null });
 });
 
 process.on('unhandledRejection', (e) => console.error('unhandledRejection', e));
