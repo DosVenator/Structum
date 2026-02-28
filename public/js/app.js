@@ -1520,6 +1520,11 @@ window.__transferBadgeTimer = setInterval(() => {
 
   await renderList(searchInput.value);
   await initPushIfPossible();
+  // показать очередь (если есть)
+try {
+  const n = await store.queueCount?.();
+  if (n > 0) appToast(`⏳ Офлайн-очередь: ${n} действий (отправится при появлении сети)`, { sticky: true });
+} catch {}
   renderAdmin();
 }
 

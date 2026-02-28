@@ -1,4 +1,6 @@
 // public/js/store.js — API store (cookie sessions)
+import { cacheGet, cacheSet } from './idb.js';
+import { enqueueJob, initQueueAutoFlush, queueCount } from './offlineQueue.js';
 
 let _me = null;
 let _objects = [];
@@ -12,7 +14,17 @@ async function api(path, { method = 'GET', body } = {}) {
   };
   if (body !== undefined) opts.body = JSON.stringify(body);
 
-  const res = await fetch(path, opts);
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (e) {
+    // офлайн/сеть упала
+    const err = new Error('network');
+    err.status = 0;
+    err.data = { error: 'network' };
+    throw err;
+  }
+
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
@@ -67,9 +79,16 @@ async function changePassword(newPassword, oldPassword = '') {
 
 // --- objects ---
 async function getObjects() {
-  const r = await api('/api/objects');
-  _objects = r.objects || [];
-  return _objects;
+  try {
+    const r = await api('/api/objects');
+    _objects = r.objects || [];
+    await cacheSet('objects', _objects);
+    return _objects;
+  } catch (e) {
+    const cached = await cacheGet('objects');
+    _objects = Array.isArray(cached) ? cached : [];
+    return _objects;
+  }
 }
 
 function getObjectById(id) {
@@ -80,9 +99,18 @@ function getObjectById(id) {
 async function getItems({ objectId = 'all' } = {}) {
   const me = await currentUserObj();
   const q = me?.role === 'admin' ? `?objectId=${encodeURIComponent(objectId)}` : '';
-  const r = await api('/api/items' + q);
-  _items = r.items || [];
-  return _items;
+  const cacheKey = `items:${me?.role === 'admin' ? objectId : (me?.objectId || 'me')}`;
+
+  try {
+    const r = await api('/api/items' + q);
+    _items = r.items || [];
+    await cacheSet(cacheKey, _items);
+    return _items;
+  } catch (e) {
+    const cached = await cacheGet(cacheKey);
+    _items = Array.isArray(cached) ? cached : [];
+    return _items;
+  }
 }
 
 function getItem(id) {
@@ -104,8 +132,42 @@ async function addOperation({ code, name, qty, from, type }) {
     if (idx >= 0) _items[idx] = updated;
     else _items.unshift(updated);
 
-    return { ok: true, item: updated };
+    return { ok: true, item: updated, queued: false };
   } catch (e) {
+    // если офлайн — кладём в очередь и делаем оптимистичное обновление
+    if (e?.data?.error === 'network' || e.status === 0) {
+      const me = await currentUserObj().catch(() => null);
+
+      await enqueueJob({
+        kind: 'ops',
+        request: {
+          url: '/api/ops',
+          method: 'POST',
+          body: { code, name, qty, from, type }
+        }
+      });
+
+      // оптимистично обновим локально список (если есть этот товар)
+      const clean = String(code || '').replace(/\s+/g, '');
+      const local = _items.find(i => i.code === clean) || null;
+
+      if (local) {
+        const delta = (type === 'in') ? Number(qty) : -Number(qty);
+        local.quantity = Math.max(0, Number(local.quantity || 0) + delta);
+      } else {
+        // если товара не было — добавим локально “черновик”
+        _items.unshift({
+          id: 'local-' + Date.now(),
+          code: clean,
+          name: String(name || clean),
+          quantity: type === 'in' ? Number(qty) : 0,
+          objectId: me?.objectId || null
+        });
+      }
+
+      return { ok: true, queued: true };
+    }
+
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
@@ -148,16 +210,21 @@ async function createTransfer({ itemId, toObjectId, qty, damaged = false, commen
   try {
     const r = await api('/api/transfers', {
       method: 'POST',
-      body: {
-        itemId,
-        toObjectId,
-        qty: Number(qty),
-        damaged: !!damaged,
-        comment: String(comment || '')
-      }
+      body: { itemId, toObjectId, qty: Number(qty), damaged: !!damaged, comment: String(comment || '') }
     });
-    return { ok: true, transfer: r.transfer };
+    return { ok: true, transfer: r.transfer, queued: false };
   } catch (e) {
+    if (e?.data?.error === 'network' || e.status === 0) {
+      await enqueueJob({
+        kind: 'transfer-create',
+        request: {
+          url: '/api/transfers',
+          method: 'POST',
+          body: { itemId, toObjectId, qty: Number(qty), damaged: !!damaged, comment: String(comment || '') }
+        }
+      });
+      return { ok: true, queued: true };
+    }
     return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
   }
 }
@@ -303,11 +370,15 @@ async function pushTest() {
   }
 }
 
+initQueueAutoFlush();
+
 window.store = {
   loginUser,
   logout,
   currentUserObj,
   changePassword,
+  
+queueCount,
 
   getObjects,
   getObjectById,
