@@ -22,23 +22,25 @@ self.addEventListener('push', (event) => {
   const body = payload.body || 'Новое событие';
 
   const options = {
-    body,
-    tag: payload.tag || undefined,
-    renotify: true,
+  body,
+  tag: payload.tag || undefined,
+  renotify: true,
 
-    // На Android даст стандартный звук/вибро по настройкам системы
-    vibrate: [80, 40, 80],
+  // Сделаем заметнее (длиннее вибрация)
+  vibrate: [120, 60, 120, 60, 200],
 
-    // Чтобы клик открывал приложение
-    data: payload.data || { url: '/' },
+  // Чтобы висело, пока не уберут (можно выключить, если бесит)
+  requireInteraction: true,
 
-    // Иконки (если есть)
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+  data: payload.data || { url: '/' },
 
-    // Можно сделать "липким" (не всем нравится):
-    // requireInteraction: true
-  };
+  icon: '/icons/icon-192.png',
+  badge: '/icons/icon-192.png',
+
+  actions: [
+    { action: 'open', title: 'Открыть' }
+  ]
+};
 
   event.waitUntil((async () => {
     // 1) Показать системную нотификацию
@@ -55,23 +57,19 @@ self.addEventListener('push', (event) => {
 // Клик по уведомлению → открыть/фокуснуть приложение
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  const url = (event.notification?.data && event.notification.data.url) ? event.notification.data.url : '/';
+  const url = event.notification?.data?.url || '/';
 
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
 
-    // если уже открыто — фокус
     for (const client of allClients) {
+      // Лучше фокуснуть и (если надо) перейти
       if ('focus' in client) {
+        await client.focus();
         client.postMessage({ type: 'OPEN_URL', url });
-        return client.focus();
+        return;
       }
     }
-
-    // иначе открыть новое
-    if (self.clients.openWindow) {
-      return self.clients.openWindow(url);
-    }
+    if (self.clients.openWindow) return self.clients.openWindow(url);
   })());
 });

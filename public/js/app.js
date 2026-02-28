@@ -28,6 +28,19 @@ const toastEl = document.getElementById('toast');
 
 let toastTimer = null;
 
+// === PUSH visibility fix (для слабых Android PWA) ===
+let needRefreshAfterPush = false;
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && needRefreshAfterPush) {
+    needRefreshAfterPush = false;
+
+    // обновляем данные только когда вкладка снова активна
+    updateTransferBadge().catch(() => {});
+    pollTransferUpdates().catch(() => {});
+  }
+});
+
 function hideToast(){
   if (!toastEl) return;
   toastEl.classList.add('hidden');
@@ -372,6 +385,7 @@ function playOnlineBeep() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
+
     const ctx = new AudioCtx();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
@@ -380,13 +394,28 @@ function playOnlineBeep() {
 
     o.type = 'sine';
     o.frequency.value = 880;
-    g.gain.value = 0.08;
+
+    // чуть громче, но не режет уши
+    g.gain.value = 0.12;
 
     o.start();
+
+    // 1) первый бип 260мс
+    setTimeout(() => {
+      // 2) пауза 120мс и второй бип 260мс (меняем частоту)
+      o.frequency.value = 660;
+    }, 260);
+
     setTimeout(() => {
       o.stop();
       ctx.close().catch(() => {});
-    }, 160);
+    }, 260 + 120 + 260);
+
+  } catch {}
+}
+function playOnlineVibrate() {
+  try {
+    if (navigator.vibrate) navigator.vibrate([60, 30, 120]);
   } catch {}
 }
 
@@ -412,9 +441,10 @@ async function initPushIfPossible() {
         else if (p?.title) appToast(p.title);
 
         playOnlineBeep();
+  playOnlineVibrate();
 
-        // можно обновить badge/списки
-        updateTransferBadge?.().catch?.(() => {});
+        
+        needRefreshAfterPush = true;
       }
       if (msg.type === 'OPEN_URL' && msg.url) {
         // если надо — можно роутить, но у нас одна страница
@@ -1490,8 +1520,6 @@ window.__transferBadgeTimer = setInterval(() => {
 
   await renderList(searchInput.value);
   await initPushIfPossible();
-  // временно: быстро проверить пуш
-  store.pushTest().then(r => console.log('pushTest', r));
   renderAdmin();
 }
 
