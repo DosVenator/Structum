@@ -1,5 +1,5 @@
 // app.js — UI/логика экранов (API-store async)
-
+const store = window.store;
 // DOM
 const loginBox = document.getElementById('loginBox');
 const appBox   = document.getElementById('appBox');
