@@ -57,9 +57,20 @@ async function logout() {
 
 async function currentUserObj() {
   if (_me) return _me;
-  const r = await api('/api/me');
+  const r = await api('/api/me'); // теперь /api/me вернёт 401 если не залогинен
   _me = r.user;
   return _me;
+}
+// пытаемся восстановить сессию после F5 (без падений)
+async function restoreSession() {
+  try {
+    const r = await api('/api/me');
+    _me = r.user;
+    return { ok: true, user: _me };
+  } catch (e) {
+    _me = null;
+    return { ok: false, status: e.status || 0 };
+  }
 }
 
 async function changePassword(newPassword, oldPassword = '') {
@@ -392,10 +403,14 @@ async function pushTest() {
 }
 
 initQueueAutoFlush();
+// Авто-восстановление сессии при перезагрузке страницы
+const _bootRestore = restoreSession();
 
 window.store = {
   loginUser,
   logout,
+  restoreSession,
+  boot: () => _bootRestore,
   currentUserObj,
   changePassword,
 

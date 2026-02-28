@@ -341,7 +341,10 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  res.json({ ok: true, user: req.session?.user || null });
+  if (!req.session?.user) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  return res.json({ ok: true, user: req.session.user });
 });
 
 app.post('/api/change-password', requireAuth, async (req, res, next) => {
