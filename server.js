@@ -422,9 +422,10 @@ app.delete('/api/admin/objects/:id', requireAuth, requireAdmin, async (req, res,
     if (!obj) return res.status(404).json({ ok: false, error: 'not-found' });
 
     await prisma.$transaction(async (tx) => {
-      await tx.object.update({ where: { id }, data: { active: false } });
-      await tx.user.updateMany({ where: { objectId: id }, data: { active: false } });
-    });
+  await tx.object.update({ where: { id }, data: { active: false } });
+  await tx.user.updateMany({ where: { objectId: id }, data: { active: false } });
+  await tx.item.updateMany({ where: { objectId: id }, data: { active: false, quantity: 0 } });
+});
 
     res.json({ ok: true });
   } catch (e) {
@@ -536,7 +537,11 @@ app.get('/api/items', requireAuth, async (req, res, next) => {
     const requestedObjectId = String(req.query.objectId || 'all');
     const objectId = u.role === 'admin' ? requestedObjectId : u.objectId;
 
-    const where = { active: true };
+    const where = {
+  active: true,
+  quantity: { gt: 0 },
+  object: { active: true }
+};
     if (objectId && objectId !== 'all') where.objectId = objectId;
 
     const items = await prisma.item.findMany({
