@@ -115,6 +115,21 @@
       <label>Количество</label>
       <input id="mQty" type="number" inputmode="numeric" placeholder="Например: 2" />
 
+      <label>Единица</label>
+<select id="mUnit">
+  <option value="">— выберите —</option>
+  <option value="шт">шт</option>
+  <option value="кг">кг</option>
+  <option value="л">л</option>
+  <option value="м">м</option>
+  <option value="м²">м²</option>
+  <option value="м³">м³</option>
+  <option value="упак">упак</option>
+  <option value="_custom">Другое…</option>
+</select>
+
+<input id="mUnitCustom" class="hidden" placeholder="Введите единицу (например: рулон)" />
+
       <label>От кого</label>
       <input id="mFrom" placeholder="Поставщик / магазин" />
 

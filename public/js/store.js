@@ -140,9 +140,12 @@ function getItemByCodeForCurrentObject(code) {
 }
 
 // operations
-async function addOperation({ code, name, qty, from, type }) {
+async function addOperation({ code, name, unit = '', qty, from, type }) {
   try {
-    const r = await api('/api/ops', { method: 'POST', body: { code, name, qty, from, type } });
+    const r = await api('/api/ops', {
+      method: 'POST',
+      body: { code, name, unit, qty, from, type }
+    });
 
     const updated = r.item;
     const idx = _items.findIndex(x => x.id === updated.id);

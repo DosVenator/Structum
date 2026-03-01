@@ -47,6 +47,7 @@ model Item {
   id        String   @id @default(cuid())
   code      String
   name      String
+  unit      String?
   quantity  Int      @default(0)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -96,6 +97,7 @@ model Transfer {
   id        String         @id @default(cuid())
   code      String
   name      String
+  unit      String?
   qty       Int
   status    TransferStatus @default(PENDING)
 

@@ -206,7 +206,7 @@ if (trInfoModal) {
   });
 }
 
-hClose.onclick = () => historyModal.classList.add('hidden');
+if (hClose) hClose.onclick = () => historyModal?.classList.add('hidden');
 
 function ymdLocal(d = new Date()) {
   const y = d.getFullYear();
@@ -553,7 +553,7 @@ const wSave = document.getElementById('wSave');
 const wCancel = document.getElementById('wCancel');
 let writeoffItemId = null;
 
-wCancel.onclick = () => writeoffModal.classList.add('hidden');
+if (wCancel) wCancel.onclick = () => writeoffModal?.classList.add('hidden');
 
 function openWriteoff(itemId){
   const item = store.getItem(itemId);
@@ -1466,7 +1466,7 @@ if (adminReportBtn) adminReportBtn.onclick = openReportModal;
 // ================================
 // login/logout
 // ================================
-loginBtn.onclick = async () => {
+if (loginBtn) loginBtn.onclick = async () => {
   const res = await store.loginUser(loginInput.value.trim(), passInput.value.trim());
   if (!res.ok) {
     loginError.textContent = `❌ Ошибка входа: ${res.status || ''} ${res.error || ''}`.trim();
@@ -1486,7 +1486,7 @@ loginBtn.onclick = async () => {
   await afterLogin();
 };
 
-logoutBtn.onclick = async () => {
+if (logoutBtn) logoutBtn.onclick = async () => {
   try { await window.scannerApi?.stopScanner(); } catch {}
   await store.logout();
 
@@ -1681,6 +1681,7 @@ async function renderList(filter=''){
           <button title="Быстрый приход" data-plus="${item.id}">➕</button>
           <button title="Списание" data-w="${item.id}">➖</button>
           <button title="Передача" data-t="${item.id}">📤</button>
+          <button title="Переименовать" data-edit="${item.id}">✏️</button>
           <button title="Удалить" data-d="${item.id}">🗑</button>
         </div>
       `
@@ -1694,7 +1695,7 @@ async function renderList(filter=''){
       <div class="item-main">
         <strong>${escapeHtml(item.name)}</strong>
         ${objLine}
-        <div class="muted">Всего: <b>${item.quantity}</b></div>
+        <div class="muted">Всего: <b>${item.quantity}</b> ${escapeHtml(item.unit || '')}</div>
       </div>
       ${actions}
     `;
@@ -1711,6 +1712,9 @@ async function renderList(filter=''){
   listEl.querySelectorAll('[data-t]').forEach(btn =>
     btn.onclick = async () => await openTransferModal(btn.getAttribute('data-t'))
   );
+  listEl.querySelectorAll('[data-edit]').forEach(btn =>
+  btn.onclick = () => openRenameModal(btn.getAttribute('data-edit'))
+);
 
   listEl.querySelectorAll('[data-d]').forEach(btn => btn.onclick = () => {
   const id = btn.getAttribute('data-d');

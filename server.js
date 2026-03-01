@@ -567,7 +567,28 @@ app.delete('/api/items/:id', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
+app.patch('/api/items/:id', requireAuth, requireUser, async (req, res, next) => {
+  try {
+    const u = req.session.user;
+    const id = String(req.params.id);
+    const name = String(req.body.name || '').trim();
 
+    if (!name) return res.status(400).json({ ok: false, error: 'name-required' });
+
+    const item = await prisma.item.findUnique({ where: { id } });
+    if (!item) return res.status(404).json({ ok: false, error: 'not-found' });
+    if (item.objectId !== u.objectId) return res.status(403).json({ ok: false, error: 'forbidden' });
+
+    const updated = await prisma.item.update({
+      where: { id },
+      data: { name }
+    });
+
+    res.json({ ok: true, item: updated });
+  } catch (e) {
+    next(e);
+  }
+});
 app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -631,33 +652,50 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     const qty = Number(req.body.qty);
     const from = String(req.body.from || '—').trim();
     const type = String(req.body.type || '').trim();
-
+    
     if (!code || !name) return res.status(400).json({ ok: false, error: 'bad-request' });
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
     if (type !== 'in' && type !== 'out') return res.status(400).json({ ok: false, error: 'type' });
 
     const { ts, time } = nowMeta();
 
-    const item = await prisma.item.upsert({
-      where: { objectId_code: { objectId: u.objectId, code } },
-      update: { active: true },
-      create: { objectId: u.objectId, code, name, quantity: 0, active: true }
-    });
+    const item = await prisma.item.findUnique({
+  where: { objectId_code: { objectId: u.objectId, code } }
+});
 
-    const newQty = type === 'in' ? item.quantity + qty : Math.max(0, item.quantity - qty);
+let ensuredItem = item;
 
-    const updated = await prisma.item.update({
-      where: { id: item.id },
-      data: {
-        name,
-        quantity: newQty,
-        operations: {
-          create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
-        }
-      }
-    });
+if (!item) {
+  // ✅ новый товар — тут name + unit обязателен
+  if (!unit) return res.status(400).json({ ok: false, error: 'unit-required' });
 
-    res.json({ ok: true, item: updated });
+  ensuredItem = await prisma.item.create({
+    data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
+  });
+} else {
+  // ✅ если уже есть — просто активируем
+  ensuredItem = await prisma.item.update({
+    where: { id: item.id },
+    data: { active: true }
+  });
+}
+
+const newQty = type === 'in'
+  ? ensuredItem.quantity + qty
+  : Math.max(0, ensuredItem.quantity - qty);
+
+const updated = await prisma.item.update({
+  where: { id: ensuredItem.id },
+  data: {
+    // ✅ name НЕ трогаем здесь
+    quantity: newQty,
+    operations: {
+      create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
+    }
+  }
+});
+
+res.json({ ok: true, item: updated });
   } catch (e) {
     next(e);
   }
@@ -757,6 +795,7 @@ app.post('/api/transfers', requireAuth, requireUser, async (req, res, next) => {
         data: {
           code: item.code,
           name: item.name,
+          unit: item.unit,
           qty,
           status: 'PENDING',
           createdById: u.id,
@@ -993,7 +1032,7 @@ await tx.item.update({
       const receiverItem = await tx.item.upsert({
         where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } },
         update: { name: tr.name, quantity: { increment: tr.qty }, active: true },
-        create: { objectId: tr.toObjectId, code: tr.code, name: tr.name, quantity: tr.qty, active: true }
+        create: { objectId: tr.toObjectId, code: tr.code, name: tr.name, unit: tr.unit || null, quantity: tr.qty, active: true }
       });
 
       await tx.operation.create({
