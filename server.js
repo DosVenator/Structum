@@ -1038,9 +1038,10 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       const toObj   = await tx.object.findUnique({ where: { id: tr.toObjectId } });
 
       // ✅ 1) Товар отправителя (только active=true)
-      const senderItem = await tx.item.findFirst({
-        where: { objectId: tr.fromObjectId, code: tr.code, active: true }
-      });
+      const senderItem = await tx.item.findUnique({
+  where: { objectId_code: { objectId: tr.fromObjectId, code: tr.code } }
+});
+if (!senderItem || senderItem.active === false) return { err: { status: 400, error: 'sender-item-missing' } };
       if (!senderItem) return { err: { status: 400, error: 'sender-item-missing' } };
       if (senderItem.quantity < tr.qty) return { err: { status: 400, error: 'sender-not-enough' } };
 
@@ -1065,33 +1066,37 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
         }
       });
 
-      // ✅ 2) Товар получателя: если уже есть активный — увеличиваем, иначе создаём
-      const receiverExisting = await tx.item.findFirst({
-        where: { objectId: tr.toObjectId, code: tr.code, active: true }
-      });
+      // ✅ 2) Товар получателя: ищем по UNIQUE (objectId+code), включая inactive
+const receiverAny = await tx.item.findUnique({
+  where: { objectId_code: { objectId: tr.toObjectId, code: tr.code } }
+});
 
-      let receiverItem;
-      if (receiverExisting) {
-        receiverItem = await tx.item.update({
-          where: { id: receiverExisting.id },
-          data: {
-            quantity: receiverExisting.quantity + tr.qty,
-            active: true
-            // ⚠️ name/unit НЕ трогаем
-          }
-        });
-      } else {
-        receiverItem = await tx.item.create({
-          data: {
-            objectId: tr.toObjectId,
-            code: tr.code,
-            name: tr.name,
-            unit: tr.unit || null,
-            quantity: tr.qty,
-            active: true
-          }
-        });
-      }
+let receiverItem;
+
+if (receiverAny) {
+  // если был удалён — поднимаем; и чтобы не “всплывал” старый остаток, как у тебя в /api/ops:
+  const baseQty = receiverAny.active ? receiverAny.quantity : 0;
+
+  receiverItem = await tx.item.update({
+    where: { id: receiverAny.id },
+    data: {
+      quantity: baseQty + tr.qty,
+      active: true
+      // name/unit НЕ трогаем
+    }
+  });
+} else {
+  receiverItem = await tx.item.create({
+    data: {
+      objectId: tr.toObjectId,
+      code: tr.code,
+      name: tr.name,
+      unit: tr.unit || null,
+      quantity: tr.qty,
+      active: true
+    }
+  });
+}
 
       await tx.operation.create({
         data: {
