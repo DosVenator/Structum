@@ -58,7 +58,7 @@ model Item {
 
   operations Operation[]
 
-  @@unique([objectId, code]) // на одном складе один штрихкод = одна позиция
+  @@unique([objectId, code, active]) // на одном складе один штрихкод = одна позиция
 }
 
 model Operation {

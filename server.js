@@ -660,8 +660,12 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
 
     const { ts, time } = nowMeta();
 
-    const item = await prisma.item.findUnique({
-  where: { objectId_code: { objectId: u.objectId, code } }
+    const item = await prisma.item.findFirst({
+  where: { 
+    objectId: u.objectId,
+    code,
+    active: true
+  }
 });
 
 let ensuredItem = item;
@@ -673,13 +677,7 @@ if (!item) {
   ensuredItem = await prisma.item.create({
     data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
   });
-} else {
-  // ✅ если уже есть — просто активируем
-  ensuredItem = await prisma.item.update({
-    where: { id: item.id },
-    data: { active: true }
-  });
-}
+} 
 
 const newQty = type === 'in'
   ? ensuredItem.quantity + qty
