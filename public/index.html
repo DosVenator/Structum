@@ -1,17 +1,19 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="uk" translate="no">
 <head>
   <meta charset="UTF-8" />
+  <meta name="google" content="notranslate">
   <title>Structum</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="/css/style.css" />
   <link rel="icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.png">
   <link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#0f1220" />
+  <meta name="theme-color" content="#0f1220" />
 </head>
-<body>
+
+<body class="notranslate">
 
   <!-- TOAST / Сообщения -->
   <div id="toast" class="toast hidden"></div>
@@ -19,10 +21,20 @@
   <!-- LOGIN -->
   <div id="loginBox" class="center-screen">
     <div class="card auth-card">
-      <h2 class="title">🔑 Вход</h2>
-      <input id="loginInput" placeholder="Логин" autocomplete="username" />
-      <input id="passInput" type="password" placeholder="Пароль" autocomplete="current-password" />
-      <button id="loginBtn" class="btn btn-primary w100">Войти</button>
+      <h2 class="title" data-i18n="login_title">🔑 Вхід</h2>
+
+      <input id="loginInput"
+             data-i18n-placeholder="login_login"
+             placeholder="Логін"
+             autocomplete="username" />
+
+      <input id="passInput"
+             type="password"
+             data-i18n-placeholder="login_password"
+             placeholder="Пароль"
+             autocomplete="current-password" />
+
+      <button id="loginBtn" class="btn btn-primary w100" data-i18n="login_btn">Увійти</button>
       <div id="loginError" class="error"></div>
     </div>
   </div>
@@ -31,32 +43,39 @@
   <div id="appBox" class="hidden">
     <header class="topbar">
       <div class="topbar-left">
-        <div class="brand">📦 Учёт материалов</div>
+        <div class="brand" data-i18n="brand_title">📦 Облік матеріалів</div>
         <div class="subtitle">
           <span id="currentObject"></span>
         </div>
       </div>
 
       <div class="topbar-right">
+        <div id="langSwitch" class="lang-switch notranslate"></div>
+
         <span id="userChip" class="chip">👤 —</span>
-        <span id="netChip" class="chip" title="Статус сети">🟢 Online</span>
-<span id="queueChip" class="chip hidden" title="Офлайн-очередь">⏳ 0</span>
+
+        <span id="netChip" class="chip" title="Статус мережі">🟢 Online</span>
+        <span id="queueChip" class="chip hidden" title="Офлайн-черга">⏳ 0</span>
 
         <button id="transferBtn" class="btn btn-primary">
-          🔄 Передачи <span id="transferBadge" class="badge hidden"></span>
+          🔄 <span data-i18n="transfers_btn">Передачі</span>
+          <span id="transferBadge" class="badge hidden"></span>
         </button>
 
-        <button id="logoutBtn" class="btn btn-secondary">🚪 Выйти</button>
+        <button id="logoutBtn" class="btn btn-secondary">🚪 <span data-i18n="logout_btn">Вийти</span></button>
       </div>
     </header>
 
     <main class="container">
       <!-- USER CONTROLS (скроются для admin) -->
       <section id="userControls" class="controls card">
-        <input id="search" placeholder="🔍 Поиск..." />
-        <button id="startScan" class="btn btn-primary">📷 Камера</button>
-        <button id="stopScan" class="btn btn-secondary">⏹ Завершить</button>
-        <button id="manualAdd" class="btn btn-primary">➕ Додати вручну</button>
+        <input id="search"
+               data-i18n-placeholder="search_placeholder"
+               placeholder="Пошук по товарах…" />
+
+        <button id="startScan" class="btn btn-primary">📷 <span data-i18n="camera_btn">Камера</span></button>
+        <button id="stopScan" class="btn btn-secondary">⏹ <span data-i18n="finish_btn">Завершити</span></button>
+        <button id="manualAdd" class="btn btn-primary">➕ <span data-i18n="manual_add_btn">Додати вручну</span></button>
       </section>
 
       <!-- CAMERA -->
@@ -67,25 +86,27 @@
 
       <!-- ADMIN PANEL (видно только admin) -->
       <section id="adminPanel" class="card hidden">
-        <h3 class="section-title">🧑‍💼 Админ-панель</h3>
+        <h3 class="section-title">🧑‍💼 <span data-i18n="admin_panel">Адмін-панель</span></h3>
+
         <div class="admin-tools">
-  <label class="muted">Объект для просмотра:</label>
-  <select id="adminObjectSelect"></select>
-  <button id="adminReportBtn" class="btn btn-primary">📊 Отчёт</button>
-</div>
+          <label class="muted" data-i18n="admin_object_label">Обʼєкт для перегляду:</label>
+          <select id="adminObjectSelect"></select>
+          <button id="adminReportBtn" class="btn btn-primary">📊 <span data-i18n="report_btn">Звіт</span></button>
+        </div>
+
         <div class="admin-grid">
           <div class="admin-block">
             <div class="admin-block-head">
-              <h4>Объекты (склады)</h4>
-              <button id="openAddObject" class="btn btn-primary">➕ Объект</button>
+              <h4 data-i18n="admin_objects_title">Обʼєкти (склади)</h4>
+              <button id="openAddObject" class="btn btn-primary">➕ <span data-i18n="admin_add_object">Обʼєкт</span></button>
             </div>
             <ul id="objectsList" class="simple-list"></ul>
           </div>
 
           <div class="admin-block">
             <div class="admin-block-head">
-              <h4>Пользователи</h4>
-              <button id="openAddUser" class="btn btn-primary">➕ Пользователь</button>
+              <h4 data-i18n="admin_users_title">Користувачі</h4>
+              <button id="openAddUser" class="btn btn-primary">➕ <span data-i18n="admin_add_user">Користувач</span></button>
             </div>
             <ul id="usersList" class="simple-list"></ul>
           </div>
@@ -94,7 +115,7 @@
 
       <!-- LIST -->
       <section class="card">
-        <h3 class="section-title">📋 Список</h3>
+        <h3 class="section-title">📋 <span data-i18n="list_title">Список</span></h3>
         <ul id="list"></ul>
       </section>
     </main>
@@ -103,41 +124,41 @@
   <!-- MODAL: Приход (ручной/после скана) -->
   <div id="intakeModal" class="modal hidden">
     <div class="modal-content">
-      <h3>➕ Приход</h3>
+      <h3>➕ <span data-i18n="intake_title">Прихід</span></h3>
 
-      <label>Штрихкод</label>
+      <label data-i18n="barcode_label">Штрихкод</label>
       <input id="mCode" placeholder="Например: 520229..." />
-      <div class="hint">Можно вставить цифры. Пробелы будут удалены.</div>
+      <div class="hint" data-i18n="barcode_hint">Можно вставить цифры. Пробелы будут удалены.</div>
 
-      <label>Название</label>
+      <label data-i18n="name_label">Назва</label>
       <input id="mName" placeholder="Например: Перчатки" />
 
-      <label>Количество</label>
+      <label data-i18n="qty_label">Кількість</label>
       <input id="mQty" type="number" inputmode="numeric" placeholder="Например: 2" />
 
-      <label>Единица</label>
-<select id="mUnit">
-  <option value="">— выберите —</option>
-  <option value="шт">шт</option>
-  <option value="кг">кг</option>
-  <option value="л">л</option>
-  <option value="м">м</option>
-  <option value="м²">м²</option>
-  <option value="м³">м³</option>
-  <option value="упак">упак</option>
-  <option value="_custom">Другое…</option>
-</select>
+      <label data-i18n="unit_label">Одиниця</label>
+      <select id="mUnit">
+        <option value="" data-i18n="unit_choose">— выберите —</option>
+        <option value="шт">шт</option>
+        <option value="кг">кг</option>
+        <option value="л">л</option>
+        <option value="м">м</option>
+        <option value="м²">м²</option>
+        <option value="м³">м³</option>
+        <option value="упак">упак</option>
+        <option value="_custom" data-i18n="unit_other">Другое…</option>
+      </select>
 
-<input id="mUnitCustom" class="hidden" placeholder="Введите единицу (например: рулон)" />
+      <input id="mUnitCustom" class="hidden" placeholder="Введите единицу (например: рулон)" />
 
-      <label>От кого</label>
+      <label data-i18n="from_label">Від кого</label>
       <input id="mFrom" placeholder="Поставщик / магазин" />
 
       <div id="mError" class="error"></div>
 
       <div class="modal-actions">
-        <button id="mSave" class="btn btn-primary">Сохранить</button>
-        <button id="mCancel" class="btn btn-secondary">Отмена</button>
+        <button id="mSave" class="btn btn-primary" data-i18n="save_btn">Зберегти</button>
+        <button id="mCancel" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
       </div>
     </div>
   </div>
@@ -145,11 +166,11 @@
   <!-- MODAL: После сохранения спросить "продолжить сканирование?" -->
   <div id="continueModal" class="modal hidden">
     <div class="modal-content">
-      <h3>✅ Сохранено</h3>
-      <p class="muted">Продолжить сканирование?</p>
+      <h3>✅ <span data-i18n="saved_title">Збережено</span></h3>
+      <p class="muted" data-i18n="continue_scan">Продовжити сканування?</p>
       <div class="modal-actions">
-        <button id="contYes" class="btn btn-primary">📷 Да</button>
-        <button id="contNo" class="btn btn-secondary">Нет</button>
+        <button id="contYes" class="btn btn-primary">📷 <span data-i18n="yes_btn">Так</span></button>
+        <button id="contNo" class="btn btn-secondary" data-i18n="no_btn">Ні</button>
       </div>
     </div>
   </div>
@@ -157,10 +178,10 @@
   <!-- MODAL: История -->
   <div id="historyModal" class="modal hidden">
     <div class="modal-content">
-      <h3 id="hTitle">📜 История</h3>
+      <h3 id="hTitle">📜 <span data-i18n="history_title">Історія</span></h3>
       <div id="hBody" class="history-body"></div>
       <div class="modal-actions">
-        <button id="hClose" class="btn btn-secondary">Закрыть</button>
+        <button id="hClose" class="btn btn-secondary" data-i18n="close_btn">Закрити</button>
       </div>
     </div>
   </div>
@@ -168,66 +189,68 @@
   <!-- MODAL: Списание -->
   <div id="writeoffModal" class="modal hidden">
     <div class="modal-content">
-      <h3>➖ Списание</h3>
+      <h3>➖ <span data-i18n="writeoff_title">Списання</span></h3>
       <p id="wTitle" class="muted"></p>
 
-      <label>Количество</label>
+      <label data-i18n="qty_label">Кількість</label>
       <input id="wQty" type="number" inputmode="numeric" placeholder="Например: 1" />
 
-      <label>Кому / куда</label>
+      <label data-i18n="to_label">Кому / куди</label>
       <input id="wTo" placeholder="Например: Бригада 2 / участок" />
 
       <div id="wError" class="error"></div>
 
       <div class="modal-actions">
-        <button id="wSave" class="btn btn-primary">Списать</button>
-        <button id="wCancel" class="btn btn-secondary">Отмена</button>
+        <button id="wSave" class="btn btn-primary" data-i18n="writeoff_btn">Списати</button>
+        <button id="wCancel" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
       </div>
     </div>
   </div>
-<!-- MODAL: Переименовать товар -->
-<div id="renameModal" class="modal hidden">
-  <div class="modal-content">
-    <h3>✏️ Переименовать</h3>
 
-    <div class="muted" id="rnHint" style="margin-bottom:8px"></div>
+  <!-- MODAL: Переименовать товар -->
+  <div id="renameModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>✏️ <span data-i18n="rename_title">Перейменувати</span></h3>
 
-    <label>Новое название</label>
-    <input id="rnName" placeholder="Например: Перчатки" />
+      <div class="muted" id="rnHint" style="margin-bottom:8px"></div>
 
-    <div id="rnError" class="error"></div>
+      <label data-i18n="new_name_label">Нова назва</label>
+      <input id="rnName" placeholder="Например: Перчатки" />
 
-    <div class="modal-actions">
-      <button id="rnSave" class="btn btn-primary">Сохранить</button>
-      <button id="rnCancel" class="btn btn-secondary">Отмена</button>
+      <div id="rnError" class="error"></div>
+
+      <div class="modal-actions">
+        <button id="rnSave" class="btn btn-primary" data-i18n="save_btn">Зберегти</button>
+        <button id="rnCancel" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
+      </div>
     </div>
   </div>
-</div>
+
   <!-- TRANSFER MODAL -->
   <div id="transferModal" class="modal hidden">
     <div class="modal-content">
-      <h3>📤 Передать товар</h3>
+      <h3>📤 <span data-i18n="transfer_title">Передати товар</span></h3>
       <p id="transferItemName" class="muted"></p>
 
-      <label>Куда</label>
+      <label data-i18n="where_label">Куди</label>
       <select id="transferTo"></select>
 
-      <label>Количество</label>
+      <label data-i18n="qty_label">Кількість</label>
       <input id="transferQty" type="number" inputmode="numeric" placeholder="Количество" />
 
-       <label style="display:flex;align-items:center;gap:10px;margin-top:10px">
+      <label style="display:flex;align-items:center;gap:10px;margin-top:10px">
         <input id="transferDamaged" type="checkbox" style="width:auto" />
-        <span class="muted">Повреждено / поломано</span>
+        <span class="muted" data-i18n="damaged_label">Пошкоджено / зламано</span>
       </label>
 
-      <label>Комментарий</label>
+      <label data-i18n="comment_label">Коментар</label>
       <input id="transferComment" placeholder="Например: сломан инструмент / нет комплекта" />
 
       <div id="transferError" class="error"></div>
 
       <div class="modal-actions">
-        <button id="confirmTransfer" class="btn btn-primary">Отправить</button>
-        <button id="cancelTransfer" class="btn btn-secondary">Отмена</button>
+        <button id="confirmTransfer" class="btn btn-primary" data-i18n="send_btn">Відправити</button>
+        <button id="cancelTransfer" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
       </div>
     </div>
   </div>
@@ -235,10 +258,10 @@
   <!-- INCOMING TRANSFERS MODAL -->
   <div id="incomingModal" class="modal hidden">
     <div class="modal-content">
-      <h3>📥 Входящие передачи</h3>
+      <h3>📥 <span data-i18n="incoming_title">Вхідні передачі</span></h3>
       <ul id="incomingList" class="simple-list"></ul>
       <div class="modal-actions">
-        <button id="incomingClose" class="btn btn-secondary">Закрыть</button>
+        <button id="incomingClose" class="btn btn-secondary" data-i18n="close_btn">Закрити</button>
       </div>
     </div>
   </div>
@@ -246,22 +269,22 @@
   <!-- MODAL: Смена пароля -->
   <div id="pwdModal" class="modal hidden">
     <div class="modal-content">
-      <h3>🔒 Смена пароля</h3>
-      <p class="muted">Это обязательный шаг при первом входе.</p>
+      <h3>🔒 <span data-i18n="pwd_title">Зміна пароля</span></h3>
+      <p class="muted" data-i18n="pwd_subtitle">Це обов’язковий крок при першому вході.</p>
 
-      <label id="pOldLabel">Старый пароль</label>
-<input id="pOld" type="password" placeholder="Старый пароль" autocomplete="current-password" />
+      <label id="pOldLabel" data-i18n="old_pwd_label">Старий пароль</label>
+      <input id="pOld" type="password" placeholder="Старый пароль" autocomplete="current-password" />
 
-      <label>Новый пароль</label>
+      <label data-i18n="new_pwd_label">Новий пароль</label>
       <input id="p1" type="password" placeholder="Новый пароль" />
 
-      <label>Повторите пароль</label>
+      <label data-i18n="repeat_pwd_label">Повторіть пароль</label>
       <input id="p2" type="password" placeholder="Повторите пароль" />
 
       <div id="pError" class="error"></div>
 
       <div class="modal-actions">
-        <button id="pSave" class="btn btn-primary">Сохранить</button>
+        <button id="pSave" class="btn btn-primary" data-i18n="save_btn">Зберегти</button>
       </div>
     </div>
   </div>
@@ -269,13 +292,13 @@
   <!-- ADMIN: добавить объект -->
   <div id="addObjectModal" class="modal hidden">
     <div class="modal-content">
-      <h3>➕ Новый объект</h3>
-      <label>Название</label>
+      <h3>➕ <span data-i18n="new_object_title">Новий обʼєкт</span></h3>
+      <label data-i18n="name_label">Назва</label>
       <input id="objName" placeholder="Например: Склад 3" />
       <div id="objError" class="error"></div>
       <div class="modal-actions">
-        <button id="objSave" class="btn btn-primary">Создать</button>
-        <button id="objCancel" class="btn btn-secondary">Отмена</button>
+        <button id="objSave" class="btn btn-primary" data-i18n="create_btn">Створити</button>
+        <button id="objCancel" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
       </div>
     </div>
   </div>
@@ -283,127 +306,130 @@
   <!-- ADMIN: добавить пользователя -->
   <div id="addUserModal" class="modal hidden">
     <div class="modal-content">
-      <h3>➕ Новый пользователь</h3>
+      <h3>➕ <span data-i18n="new_user_title">Новий користувач</span></h3>
 
-      <label>Логин</label>
+      <label data-i18n="login_label">Логін</label>
       <input id="uLogin" placeholder="Например: sklad3" />
 
-      <label>Объект</label>
+      <label data-i18n="object_label">Обʼєкт</label>
       <select id="uObject"></select>
 
-      <label>Временный пароль</label>
+      <label data-i18n="temp_pwd_label">Тимчасовий пароль</label>
       <input id="uPass" placeholder="Можно изменить" />
 
       <div id="uError" class="error"></div>
 
       <div class="modal-actions">
-        <button id="uSave" class="btn btn-primary">Создать</button>
-        <button id="uCancel" class="btn btn-secondary">Отмена</button>
+        <button id="uSave" class="btn btn-primary" data-i18n="create_btn">Створити</button>
+        <button id="uCancel" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
       </div>
 
-      <p class="muted" style="margin-top:10px">
-        После первого входа пользователь будет обязан сменить пароль.
+      <p class="muted" style="margin-top:10px" data-i18n="first_login_pwd_note">
+        Після першого входу користувач буде зобов’язаний змінити пароль.
       </p>
     </div>
   </div>
-<!-- MODAL: Confirm -->
-<div id="confirmModal" class="modal hidden">
-  <div class="modal-content">
-    <h3 id="cTitle">Подтверждение</h3>
-    <p id="cText" class="muted"></p>
 
-    <div class="modal-actions">
-      <button id="cYes" class="btn btn-danger">Удалить</button>
-      <button id="cNo" class="btn btn-secondary">Отмена</button>
+  <!-- MODAL: Confirm -->
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="cTitle" data-i18n="confirm_title">Підтвердження</h3>
+      <p id="cText" class="muted"></p>
+
+      <div class="modal-actions">
+        <button id="cYes" class="btn btn-danger">Ок</button>
+        <button id="cNo" class="btn btn-secondary" data-i18n="cancel_btn">Скасувати</button>
+      </div>
     </div>
   </div>
-</div>
-<!-- ADMIN: REPORT MODAL -->
-<div id="reportModal" class="modal hidden">
-  <div class="modal-content modal-wide">
-    <div class="modal-head">
-      <h3>📊 Отчёт</h3>
-      <button id="rClose" class="btn btn-secondary">✕</button>
-    </div>
 
-    <div class="report-form">
-      <div class="field">
-        <label>Объект</label>
-        <select id="rObject"></select>
+  <!-- ADMIN: REPORT MODAL -->
+  <div id="reportModal" class="modal hidden">
+    <div class="modal-content modal-wide">
+      <div class="modal-head">
+        <h3>📊 <span data-i18n="report_title">Звіт</span></h3>
+        <button id="rClose" class="btn btn-secondary">✕</button>
       </div>
 
-      <div class="field">
-        <label>С даты</label>
-        <input id="rFrom" type="date" />
-      </div>
+      <div class="report-form">
+        <div class="field">
+          <label data-i18n="object_label">Обʼєкт</label>
+          <select id="rObject"></select>
+        </div>
 
-      <div class="field">
-        <label>По дату</label>
-        <input id="rTo" type="date" />
-      </div>
+        <div class="field">
+          <label data-i18n="from_date_label">З дати</label>
+          <input id="rFrom" type="date" />
+        </div>
 
-      <div class="field">
-        <label>Режим</label>
-        <div class="radio-row">
-          <label><input id="rModeAll" type="radio" name="rMode" checked /> По всем товарам</label>
-          <label><input id="rModeOne" type="radio" name="rMode" /> По одному товару</label>
+        <div class="field">
+          <label data-i18n="to_date_label">По дату</label>
+          <input id="rTo" type="date" />
+        </div>
+
+        <div class="field">
+          <label data-i18n="mode_label">Режим</label>
+          <div class="radio-row">
+            <label><input id="rModeAll" type="radio" name="rMode" checked /> <span data-i18n="mode_all">По всіх товарах</span></label>
+            <label><input id="rModeOne" type="radio" name="rMode" /> <span data-i18n="mode_one">По одному товару</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="ops_type_label">Тип операцій</label>
+          <select id="rType">
+            <option value="all" data-i18n="ops_all">Всі</option>
+            <option value="in" data-i18n="ops_in">Тільки прихід</option>
+            <option value="out" data-i18n="ops_out">Тільки витрата</option>
+          </select>
+        </div>
+
+        <div class="field hidden" id="rItemWrap">
+          <label data-i18n="item_label">Товар</label>
+          <select id="rItem"></select>
+        </div>
+
+        <div class="field">
+          <button id="rBuild" class="btn btn-primary w100" data-i18n="build_btn">Сформувати</button>
+          <div id="rError" class="error"></div>
         </div>
       </div>
 
-      <div class="field">
-  <label>Тип операций</label>
-  <select id="rType">
-    <option value="all">Все</option>
-    <option value="in">Только приход</option>
-    <option value="out">Только расход</option>
-  </select>
-</div>
+      <div id="rTableWrap" class="report-output"></div>
+    </div>
+  </div>
 
-      <div class="field hidden" id="rItemWrap">
-        <label>Товар</label>
-        <select id="rItem"></select>
+  <div id="appSplash" class="app-splash">
+    <div class="app-splash__bg"></div>
+
+    <div class="app-splash__content">
+      <div class="app-splash__logo"></div>
+
+      <div class="app-splash__title" data-i18n="brand_title">
+        Облік матеріалів
       </div>
 
-      <div class="field">
-        <button id="rBuild" class="btn btn-primary w100">Сформировать</button>
-        <div id="rError" class="error"></div>
+      <div class="app-splash__subtitle" id="splashText" data-i18n="splash_starting">
+        Запуск застосунку…
+      </div>
+
+      <div class="app-splash__progress">
+        <div class="app-splash__bar" id="splashBar"></div>
       </div>
     </div>
-
-    <div id="rTableWrap" class="report-output"></div>
   </div>
-</div>
-<div id="appSplash" class="app-splash">
-  <div class="app-splash__bg"></div>
 
-  <div class="app-splash__content">
-    <div class="app-splash__logo"></div>
-
-    <div class="app-splash__title">
-      Учёт материалов
-    </div>
-
-    <div class="app-splash__subtitle" id="splashText">
-      Запуск приложения…
-    </div>
-
-    <div class="app-splash__progress">
-      <div class="app-splash__bar" id="splashBar"></div>
+  <div id="trInfoModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="trInfoTitle">💬 <span data-i18n="transfer_comment_title">Коментар передачі</span></h3>
+      <div id="trInfoBody" class="history-body"></div>
+      <div class="modal-actions">
+        <button id="trInfoClose" class="btn btn-secondary" data-i18n="close_btn">Закрити</button>
+      </div>
     </div>
   </div>
-</div>
-<div id="trInfoModal" class="modal hidden">
-  <div class="modal-content">
-    <h3 id="trInfoTitle">💬 Комментарий передачи</h3>
-    <div id="trInfoBody" class="history-body"></div>
-    <div class="modal-actions">
-      <button id="trInfoClose" class="btn btn-secondary">Закрыть</button>
-    </div>
-  </div>
-</div>
+
   <script src="https://unpkg.com/html5-qrcode"></script>
-<script type="module" src="/js/app.js"></script>
-  <!-- MODAL: Transfer comment/details -->
-
+  <script type="module" src="/js/app.js"></script>
 </body>
 </html>

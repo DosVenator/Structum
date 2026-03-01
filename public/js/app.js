@@ -1,6 +1,8 @@
 import './store.js';
 import './scanner.js';
+import { initI18n, t, applyLang } from './i18n.js';
 
+initI18n();
 const store = window.store;
 // DOM
 const loginBox = document.getElementById('loginBox');
@@ -30,7 +32,7 @@ const queueChip = document.getElementById('queueChip');
 function setNetStatus() {
   const on = navigator.onLine === true;
   if (!netChip) return;
-  netChip.textContent = on ? '🟢 Online' : '🔴 Offline';
+  netChip.textContent = on ? t('online') : t('offline');
   netChip.style.opacity = on ? '1' : '0.95';
 }
 
@@ -1712,7 +1714,7 @@ async function renderList(filter=''){
   const u = await store.currentUserObj();
   if (!u) return;
 
-  listEl.innerHTML = `<li><span class="muted">Загрузка…</span></li>`;
+  listEl.innerHTML = `<li><span class="muted">${t('loading')}</span></li>`;
 
   const objectIdForAdmin = (u.role === 'admin') ? adminSelectedObjectId : 'all';
   const itemsFromApi = await store.getItems({ objectId: objectIdForAdmin });
@@ -1725,7 +1727,7 @@ async function renderList(filter=''){
     .sort((a,b) => String(a.name||'').localeCompare(String(b.name||''),'ru'));
 
   if (!items.length) {
-    listEl.innerHTML = `<li><span class="muted">Ничего не найдено</span></li>`;
+    listEl.innerHTML = `<li><span class="muted">${t('nothing_found')}</span></li>`;
     return;
   }
 
