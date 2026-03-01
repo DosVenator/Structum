@@ -648,7 +648,7 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
 
-    const code = String(req.body.code || '').replace(/\s+/g, '');
+    const code = String(req.body.code || '').replace(/\s+/g, ''); // нормализуем
     const name = String(req.body.name || '').trim();
     const unit = String(req.body.unit || '').trim();
     const qty = Number(req.body.qty);
@@ -661,44 +661,79 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
 
     const { ts, time } = nowMeta();
 
-    // ✅ Ищем товар по objectId+code БЕЗ фильтра active
-    const itemAny = await prisma.item.findFirst({
-      where: { objectId: u.objectId, code }
-    });
+    // ✅ ищем по УНИКАЛЬНОМУ ключу (objectId+code)
+    const whereUnique = { objectId_code: { objectId: u.objectId, code } };
 
-    let ensuredItem = itemAny;
+    // 1) Расход: только по активному товару, удалённый НЕ воскрешаем
+    if (type === 'out') {
+      const item = await prisma.item.findUnique({ where: whereUnique });
+      if (!item || item.active === false) {
+        return res.status(404).json({ ok: false, error: 'not-found' });
+      }
 
-    if (!itemAny) {
-      // ✅ Новый товар
+      const newQty = Math.max(0, item.quantity - qty);
+
+      const updated = await prisma.item.update({
+        where: { id: item.id },
+        data: {
+          quantity: newQty,
+          active: newQty > 0, // если ушли в 0 — скрываем из списка
+          operations: {
+            create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
+          }
+        }
+      });
+
+      return res.json({ ok: true, item: updated });
+    }
+
+    // 2) Приход: если нет товара — создаём, если был удалён — включаем и СБРАСЫВАЕМ остаток в 0
+    let item = await prisma.item.findUnique({ where: whereUnique });
+
+    if (!item) {
       if (!unit) return res.status(400).json({ ok: false, error: 'unit-required' });
 
-      ensuredItem = await prisma.item.create({
-        data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
-      });
-    } else if (itemAny.active === false) {
-      // ✅ Товар был "удалён": включаем обратно, но НЕ подтягиваем старый остаток
-      // чтобы не получилось: было 10, удалил, потом добавил 10 => стало 20
-      ensuredItem = await prisma.item.update({
-        where: { id: itemAny.id },
+      try {
+        item = await prisma.item.create({
+          data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
+        });
+      } catch (e) {
+        // ✅ гонка: кто-то уже успел создать — просто читаем существующий
+        if (e?.code === 'P2002') {
+          item = await prisma.item.findUnique({ where: whereUnique });
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    // если нашли/достали, но он был удалён — “воскрешаем”, но без старого остатка
+    if (item && item.active === false) {
+      item = await prisma.item.update({
+        where: { id: item.id },
         data: { active: true, quantity: 0 }
       });
     }
 
-    const newQty = type === 'in'
-      ? ensuredItem.quantity + qty
-      : Math.max(0, ensuredItem.quantity - qty);
+    if (!item) {
+      // на всякий случай (если после P2002 не прочиталось)
+      return res.status(500).json({ ok: false, error: 'server' });
+    }
+
+    const newQty = item.quantity + qty;
 
     const updated = await prisma.item.update({
-      where: { id: ensuredItem.id },
+      where: { id: item.id },
       data: {
         quantity: newQty,
+        active: true,
         operations: {
-          create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
+          create: { type: 'in', qty, from, ts, time, objectId: u.objectId, userId: u.id }
         }
       }
     });
 
-    res.json({ ok: true, item: updated });
+    return res.json({ ok: true, item: updated });
   } catch (e) {
     next(e);
   }
