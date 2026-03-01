@@ -185,7 +185,24 @@
       </div>
     </div>
   </div>
+<!-- MODAL: Переименовать товар -->
+<div id="renameModal" class="modal hidden">
+  <div class="modal-content">
+    <h3>✏️ Переименовать</h3>
 
+    <div class="muted" id="rnHint" style="margin-bottom:8px"></div>
+
+    <label>Новое название</label>
+    <input id="rnName" placeholder="Например: Перчатки" />
+
+    <div id="rnError" class="error"></div>
+
+    <div class="modal-actions">
+      <button id="rnSave" class="btn btn-primary">Сохранить</button>
+      <button id="rnCancel" class="btn btn-secondary">Отмена</button>
+    </div>
+  </div>
+</div>
   <!-- TRANSFER MODAL -->
   <div id="transferModal" class="modal hidden">
     <div class="modal-content">

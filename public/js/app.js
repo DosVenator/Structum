@@ -167,37 +167,80 @@ function escapeHtml(s) {
 /* ===========================
    ✅ Helpers: safe DOM remove
    =========================== */
-   function openRenameModal(itemId){
+   // ================================
+// Rename modal (вместо prompt)
+// ================================
+const renameModal = document.getElementById('renameModal');
+const rnName = document.getElementById('rnName');
+const rnHint = document.getElementById('rnHint');
+const rnError = document.getElementById('rnError');
+const rnSave = document.getElementById('rnSave');
+const rnCancel = document.getElementById('rnCancel');
+
+let renameItemId = null;
+
+function closeRenameModal(){
+  renameModal?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+  renameItemId = null;
+}
+
+if (rnCancel) rnCancel.onclick = closeRenameModal;
+
+// закрытие по клику на фон
+if (renameModal) {
+  renameModal.addEventListener('click', (e) => {
+    if (e.target === renameModal) closeRenameModal();
+  });
+}
+
+// Enter -> save
+if (rnName) {
+  rnName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') rnSave?.click();
+  });
+}
+
+function openRenameModal(itemId){
   const item = store.getItem(itemId);
   if (!item) return;
 
-  const nextName = prompt('Новое название товара:', item.name);
-  if (nextName === null) return;
+  renameItemId = itemId;
+  if (rnError) rnError.textContent = '';
 
-  const name = String(nextName || '').trim();
-  if (!name) { appToast('Название не может быть пустым'); return; }
+  if (rnHint) rnHint.textContent = `Текущее: ${item.name}`;
+  if (rnName) rnName.value = String(item.name || '');
 
-  (async () => {
-    const r = await store.renameItem(itemId, name);
+  document.body.classList.add('modal-open');
+  renameModal?.classList.remove('hidden');
+
+  setTimeout(() => rnName?.focus(), 50);
+}
+
+if (rnSave) rnSave.onclick = async () => {
+  if (rnError) rnError.textContent = '';
+
+  const item = store.getItem(renameItemId);
+  if (!item) { if (rnError) rnError.textContent = 'Товар не найден'; return; }
+
+  const name = String(rnName?.value || '').trim();
+  if (!name) { if (rnError) rnError.textContent = 'Название не может быть пустым'; return; }
+
+  rnSave.disabled = true;
+  try {
+    const r = await store.renameItem(renameItemId, name);
     if (!r.ok) {
-      appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+      if (rnError) rnError.textContent = `Ошибка: ${r.status || ''} ${r.error || ''}`.trim();
       return;
     }
-    appToast('✅ Название изменено');
-    await renderList(searchInput.value);
-  })();
-}
-function removeListRowByDataset(listNode, datasetKey, id) {
-  if (!listNode || !id) return false;
-  const rows = listNode.querySelectorAll('li');
-  for (const li of rows) {
-    if (li?.dataset?.[datasetKey] === id) {
-      li.remove();
-      return true;
-    }
+
+    closeRenameModal();
+    window.appToast?.('✅ Название изменено');
+    await window.renderList?.(document.getElementById('search')?.value || '');
+  } finally {
+    rnSave.disabled = false;
   }
-  return false;
-}
+};
 
 // ================================
 // Modals: history
