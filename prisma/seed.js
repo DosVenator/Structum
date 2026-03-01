@@ -16,11 +16,11 @@ async function main() {
     create: { name: 'Склад 1', active: true },
   });
 
-  // const s2 = await prisma.object.upsert({
-  //   where: { name: 'Склад 2' },
-  //   update: { active: true },
-  //   create: { name: 'Склад 2', active: true },
-  // });
+  const s2 = await prisma.object.upsert({
+    where: { name: 'Склад 2' },
+    update: {},
+    create: { name: 'Склад 2', active: true },
+  });
 
   // 2) Пароли (bcrypt)
   const adminHash = await hashPassword('admin');
