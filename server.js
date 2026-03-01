@@ -129,7 +129,6 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-
 // Parsers only for /api
 app.use('/api', express.json());
 app.use('/api', express.urlencoded({ extended: true }));
@@ -567,6 +566,7 @@ app.delete('/api/items/:id', requireAuth, async (req, res, next) => {
     next(e);
   }
 });
+
 app.patch('/api/items/:id', requireAuth, requireUser, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -589,6 +589,7 @@ app.patch('/api/items/:id', requireAuth, requireUser, async (req, res, next) => 
     next(e);
   }
 });
+
 app.get('/api/items/:id/history', requireAuth, async (req, res, next) => {
   try {
     const u = req.session.user;
@@ -653,48 +654,51 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     const qty = Number(req.body.qty);
     const from = String(req.body.from || '—').trim();
     const type = String(req.body.type || '').trim();
-    
+
     if (!code || !name) return res.status(400).json({ ok: false, error: 'bad-request' });
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
     if (type !== 'in' && type !== 'out') return res.status(400).json({ ok: false, error: 'type' });
 
     const { ts, time } = nowMeta();
 
-    const item = await prisma.item.findFirst({
-  where: { 
-    objectId: u.objectId,
-    code,
-    active: true
-  }
-});
+    // ✅ Ищем товар по objectId+code БЕЗ фильтра active
+    const itemAny = await prisma.item.findFirst({
+      where: { objectId: u.objectId, code }
+    });
 
-let ensuredItem = item;
+    let ensuredItem = itemAny;
 
-if (!item) {
-  // ✅ новый товар — тут name + unit обязателен
-  if (!unit) return res.status(400).json({ ok: false, error: 'unit-required' });
+    if (!itemAny) {
+      // ✅ Новый товар
+      if (!unit) return res.status(400).json({ ok: false, error: 'unit-required' });
 
-  ensuredItem = await prisma.item.create({
-    data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
-  });
-} 
-
-const newQty = type === 'in'
-  ? ensuredItem.quantity + qty
-  : Math.max(0, ensuredItem.quantity - qty);
-
-const updated = await prisma.item.update({
-  where: { id: ensuredItem.id },
-  data: {
-    // ✅ name НЕ трогаем здесь
-    quantity: newQty,
-    operations: {
-      create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
+      ensuredItem = await prisma.item.create({
+        data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
+      });
+    } else if (itemAny.active === false) {
+      // ✅ Товар был "удалён": включаем обратно, но НЕ подтягиваем старый остаток
+      // чтобы не получилось: было 10, удалил, потом добавил 10 => стало 20
+      ensuredItem = await prisma.item.update({
+        where: { id: itemAny.id },
+        data: { active: true, quantity: 0 }
+      });
     }
-  }
-});
 
-res.json({ ok: true, item: updated });
+    const newQty = type === 'in'
+      ? ensuredItem.quantity + qty
+      : Math.max(0, ensuredItem.quantity - qty);
+
+    const updated = await prisma.item.update({
+      where: { id: ensuredItem.id },
+      data: {
+        quantity: newQty,
+        operations: {
+          create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
+        }
+      }
+    });
+
+    res.json({ ok: true, item: updated });
   } catch (e) {
     next(e);
   }
@@ -990,91 +994,91 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
     const { ts: actedTs, time: actedTime } = nowMeta();
 
     const result = await prisma.$transaction(async (tx) => {
-  const tr = await tx.transfer.findUnique({ where: { id } });
-  if (!tr) return { err: { status: 404, error: 'not-found' } };
-  if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
-  if (tr.status !== 'PENDING') return { err: { status: 400, error: 'bad-status' } };
+      const tr = await tx.transfer.findUnique({ where: { id } });
+      if (!tr) return { err: { status: 404, error: 'not-found' } };
+      if (tr.toObjectId !== u.objectId) return { err: { status: 403, error: 'forbidden' } };
+      if (tr.status !== 'PENDING') return { err: { status: 400, error: 'bad-status' } };
 
-  const fromObj = await tx.object.findUnique({ where: { id: tr.fromObjectId } });
-  const toObj   = await tx.object.findUnique({ where: { id: tr.toObjectId } });
+      const fromObj = await tx.object.findUnique({ where: { id: tr.fromObjectId } });
+      const toObj   = await tx.object.findUnique({ where: { id: tr.toObjectId } });
 
-  // ✅ 1) Товар отправителя (только active=true)
-  const senderItem = await tx.item.findFirst({
-    where: { objectId: tr.fromObjectId, code: tr.code, active: true }
-  });
-  if (!senderItem) return { err: { status: 400, error: 'sender-item-missing' } };
-  if (senderItem.quantity < tr.qty) return { err: { status: 400, error: 'sender-not-enough' } };
+      // ✅ 1) Товар отправителя (только active=true)
+      const senderItem = await tx.item.findFirst({
+        where: { objectId: tr.fromObjectId, code: tr.code, active: true }
+      });
+      if (!senderItem) return { err: { status: 400, error: 'sender-item-missing' } };
+      if (senderItem.quantity < tr.qty) return { err: { status: 400, error: 'sender-not-enough' } };
 
-  const newSenderQty = senderItem.quantity - tr.qty;
+      const newSenderQty = senderItem.quantity - tr.qty;
 
-  await tx.item.update({
-    where: { id: senderItem.id },
-    data: { quantity: newSenderQty, active: newSenderQty > 0 }
-  });
+      await tx.item.update({
+        where: { id: senderItem.id },
+        data: { quantity: newSenderQty, active: newSenderQty > 0 }
+      });
 
-  await tx.operation.create({
-    data: {
-      type: 'out',
-      qty: tr.qty,
-      from: `Передача → ${toObj?.name || 'Склад'}`,
-      ts: actedTs,
-      time: actedTime,
-      objectId: tr.fromObjectId,
-      itemId: senderItem.id,
-      userId: tr.createdById,
-      transferId: tr.id
-    }
-  });
+      await tx.operation.create({
+        data: {
+          type: 'out',
+          qty: tr.qty,
+          from: `Передача → ${toObj?.name || 'Склад'}`,
+          ts: actedTs,
+          time: actedTime,
+          objectId: tr.fromObjectId,
+          itemId: senderItem.id,
+          userId: tr.createdById,
+          transferId: tr.id
+        }
+      });
 
-  // ✅ 2) Товар получателя: если уже есть активный — увеличиваем, иначе создаём
-  const receiverExisting = await tx.item.findFirst({
-    where: { objectId: tr.toObjectId, code: tr.code, active: true }
-  });
+      // ✅ 2) Товар получателя: если уже есть активный — увеличиваем, иначе создаём
+      const receiverExisting = await tx.item.findFirst({
+        where: { objectId: tr.toObjectId, code: tr.code, active: true }
+      });
 
-  let receiverItem;
-  if (receiverExisting) {
-    receiverItem = await tx.item.update({
-      where: { id: receiverExisting.id },
-      data: {
-        quantity: receiverExisting.quantity + tr.qty,
-        active: true
-        // ⚠️ name/unit НЕ трогаем — это важно для твоего кейса с разными названиями
+      let receiverItem;
+      if (receiverExisting) {
+        receiverItem = await tx.item.update({
+          where: { id: receiverExisting.id },
+          data: {
+            quantity: receiverExisting.quantity + tr.qty,
+            active: true
+            // ⚠️ name/unit НЕ трогаем
+          }
+        });
+      } else {
+        receiverItem = await tx.item.create({
+          data: {
+            objectId: tr.toObjectId,
+            code: tr.code,
+            name: tr.name,
+            unit: tr.unit || null,
+            quantity: tr.qty,
+            active: true
+          }
+        });
       }
+
+      await tx.operation.create({
+        data: {
+          type: 'in',
+          qty: tr.qty,
+          from: `Передача ← ${fromObj?.name || 'Склад'}`,
+          ts: actedTs,
+          time: actedTime,
+          objectId: tr.toObjectId,
+          itemId: receiverItem.id,
+          userId: u.id,
+          transferId: tr.id
+        }
+      });
+
+      const updated = await tx.transfer.update({
+        where: { id },
+        data: { status: 'ACCEPTED', actedById: u.id, actedAt, actedTs, actedTime }
+      });
+
+      return { transfer: updated };
     });
-  } else {
-    receiverItem = await tx.item.create({
-      data: {
-        objectId: tr.toObjectId,
-        code: tr.code,
-        name: tr.name,
-        unit: tr.unit || null,
-        quantity: tr.qty,
-        active: true
-      }
-    });
-  }
-
-  await tx.operation.create({
-    data: {
-      type: 'in',
-      qty: tr.qty,
-      from: `Передача ← ${fromObj?.name || 'Склад'}`,
-      ts: actedTs,
-      time: actedTime,
-      objectId: tr.toObjectId,
-      itemId: receiverItem.id,
-      userId: u.id,
-      transferId: tr.id
-    }
-  });
-
-  const updated = await tx.transfer.update({
-    where: { id },
-    data: { status: 'ACCEPTED', actedById: u.id, actedAt, actedTs, actedTime }
-  });
-
-  return { transfer: updated };
-});
 
     if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
 
