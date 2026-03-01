@@ -110,7 +110,7 @@ function appToast(msg, opts = {}) {
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.textContent = '✕';
-    closeBtn.title = 'Закрыть';
+    closeBtn.title = t('close');
     closeBtn.style.border = 'none';
     closeBtn.style.background = 'transparent';
     closeBtn.style.color = 'inherit';
@@ -131,7 +131,7 @@ function appToast(msg, opts = {}) {
 
 window.appToast = appToast;
 
-function soon(msg = 'Скоро будет ✅') {
+function soon(msg = t('soon_default')) {
   appToast(msg);
 }
 
@@ -210,7 +210,7 @@ function openRenameModal(itemId){
   renameItemId = itemId;
   if (rnError) rnError.textContent = '';
 
-  if (rnHint) rnHint.textContent = `Текущее: ${item.name}`;
+  if (rnHint) rnHint.textContent = `${t('current_name')} ${item.name}`;
   if (rnName) rnName.value = String(item.name || '');
 
   document.body.classList.add('modal-open');
@@ -223,21 +223,20 @@ if (rnSave) rnSave.onclick = async () => {
   if (rnError) rnError.textContent = '';
 
   const item = store.getItem(renameItemId);
-  if (!item) { if (rnError) rnError.textContent = 'Товар не найден'; return; }
-
+  if (!item) { if (rnError) rnError.textContent = t('item_not_found'); return; }
   const name = String(rnName?.value || '').trim();
-  if (!name) { if (rnError) rnError.textContent = 'Название не может быть пустым'; return; }
+  if (!name) { if (rnError) rnError.textContent = t('name_empty'); return; }
 
   rnSave.disabled = true;
   try {
     const r = await store.renameItem(renameItemId, name);
     if (!r.ok) {
-      if (rnError) rnError.textContent = `Ошибка: ${r.status || ''} ${r.error || ''}`.trim();
+      if (rnError) rnError.textContent = `${t('error')}: ${r.status || ''} ${r.error || ''}`.trim();
       return;
     }
 
     closeRenameModal();
-    window.appToast?.('✅ Название изменено');
+    window.appToast?.(t('name_changed'));
     await window.renderList?.(document.getElementById('search')?.value || '');
   } finally {
     rnSave.disabled = false;
@@ -292,7 +291,7 @@ async function openHistory(itemId){
   const item = store.getItem(itemId);
   if (!item) return;
 
-  hTitle.textContent = `📜 История — ${item.name}`;
+  hTitle.textContent = t('history_header', { name: item.name });
 
   // ✅ дефолт: 7 дней
   const to = new Date();
@@ -301,20 +300,20 @@ async function openHistory(itemId){
   hBody.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px">
       <div style="flex:1;min-width:140px">
-        <label style="margin:0 0 6px">С</label>
+        <label style="margin:0 0 6px">${t('from_short')}</label>
         <input id="hFrom" type="date" value="${ymdLocal(from)}">
       </div>
       <div style="flex:1;min-width:140px">
-        <label style="margin:0 0 6px">По</label>
+        <label style="margin:0 0 6px">${t('to_short')}</label>
         <input id="hTo" type="date" value="${ymdLocal(to)}">
       </div>
       <div style="min-width:160px">
-        <button class="btn btn-secondary w100" id="hApply">Показать</button>
+        <button class="btn btn-secondary w100" id="hApply">${t('show_btn')}</button>
       </div>
     </div>
 
     <div class="history-body" id="hList">
-      <div class="muted">Загрузка…</div>
+      <div class="muted">${t('loading')}</div>
     </div>
   `;
 
@@ -329,18 +328,18 @@ async function openHistory(itemId){
     const toYmd = hTo?.value;
 
     if (!fromYmd || !toYmd) {
-      hList.innerHTML = `<div class="muted">Выберите даты</div>`;
+      hList.innerHTML = `<div class="muted">${t('choose_dates')}</div>`;
       return;
     }
 
     const fromTs = ymdToStartTs(fromYmd);
     const toTs = ymdToEndTs(toYmd);
     if (toTs < fromTs) {
-      hList.innerHTML = `<div class="muted">Конечная дата меньше начальной</div>`;
+      hList.innerHTML = `<div class="muted">${t('date_end_less')}</div>`;
       return;
     }
 
-    hList.innerHTML = `<div class="muted">Загрузка…</div>`;
+    hList.innerHTML = `<div class="muted">${t('loading')}</div>`;
 
     try {
       const ops = await store.getHistory(itemId, { fromTs, toTs });
@@ -348,7 +347,7 @@ async function openHistory(itemId){
       hList.innerHTML = ops.length
         ? ops.map(o => {
             const sign = o.type === 'in' ? '+' : '-';
-            const typeLabel = o.type === 'in' ? 'Приход' : 'Расход';
+            const typeLabel = o.type === 'in' ? t('incoming_label') : t('outgoing_label');
             return `
   <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)">
     <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
@@ -358,8 +357,8 @@ async function openHistory(itemId){
       </div>
 
       <div style="display:flex;gap:10px;align-items:center">
-        ${o.damaged ? `<span title="Повреждено" style="font-size:14px">🔷</span>` : ''}
-        ${o.hasComment && o.transferId ? `<button class="btn btn-secondary" style="padding:6px 10px" data-trc="${o.transferId}" title="Открыть комментарий">💬</button>` : ''}
+        ${o.damaged ? `<span title="${t('damaged_title')}" style="font-size:14px">🔷</span>` : ''}
+        ${o.hasComment && o.transferId ? `<button class="btn btn-secondary" style="padding:6px 10px" data-trc="${o.transferId}" title="${t('open_comment_title')}">💬</button>` : ''}
         <div class="muted">${typeLabel}</div>
       </div>
     </div>
@@ -368,7 +367,7 @@ async function openHistory(itemId){
   </div>
 `;
           }).join('')
-        : `<div class="muted">Нет операций за выбранный период</div>`;
+        : `<div class="muted">${t('no_ops_period')}</div>`;
     hList.querySelectorAll('[data-trc]').forEach(btn => {
   btn.addEventListener('click', async (e) => {
     e.preventDefault();
@@ -380,7 +379,7 @@ async function openHistory(itemId){
     
       } catch (e) {
       console.error(e);
-      hList.innerHTML = `<div class="muted">Ошибка загрузки истории</div>`;
+      hList.innerHTML = `<div class="muted">${t('history_load_error')}</div>`;
     }
   }
 
@@ -392,8 +391,8 @@ async function openHistory(itemId){
 async function openTransferInfo(transferId){
   if (!transferId) return;
 
-  trInfoTitle.textContent = '💬 Детали передачи';
-  trInfoBody.innerHTML = `<div class="muted">Загрузка…</div>`;
+  trInfoTitle.textContent = t('transfer_details_title');
+trInfoBody.innerHTML = `<div class="muted">${t('loading')}</div>`;
 
   // ✅ важно для корректного отображения поверх
   document.body.classList.add('modal-open');
@@ -402,32 +401,32 @@ async function openTransferInfo(transferId){
   try {
     const r = await store.getTransferDetails(transferId);
     if (!r.ok) {
-      trInfoBody.innerHTML = `<div class="muted">Ошибка: ${escapeHtml(r.error || 'server')}</div>`;
+      trInfoBody.innerHTML = `<div class="muted">${t('error')}: ${escapeHtml(r.error || 'server')}</div>`;
       return;
     }
 
-    const t = r.transfer;
+    const tr = r.transfer;
 
-    trInfoBody.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
-        <div class="muted">Кол-во: <b>${t.qty}</b></div>
-        <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName)}</b></div>
-        <div class="muted">Куда: <b>${escapeHtml(t.toObjectName)}</b></div>
-        <div class="muted">Когда: <b>${escapeHtml(t.time)}</b></div>
-        <div class="muted">Статус: <b>${escapeHtml(String(t.status || ''))}</b></div>
-        ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
-        ${t.comment
-          ? `<div style="margin-top:6px">
-               <div class="muted">Комментарий:</div>
-               <div><b>${escapeHtml(t.comment)}</b></div>
-             </div>`
-          : `<div class="muted">Комментария нет</div>`}
-      </div>
-    `;
+trInfoBody.innerHTML = `
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div><b>${escapeHtml(tr.name)}</b> <span class="muted">(${escapeHtml(tr.code)})</span></div>
+    <div class="muted">${t('qty_short')}: <b>${tr.qty}</b></div>
+    <div class="muted">${t('from_where')}: <b>${escapeHtml(tr.fromObjectName)}</b></div>
+    <div class="muted">${t('to_where')}: <b>${escapeHtml(tr.toObjectName)}</b></div>
+    <div class="muted">${t('when')}: <b>${escapeHtml(tr.time)}</b></div>
+    <div class="muted">${t('status')}: <b>${escapeHtml(String(tr.status || ''))}</b></div>
+    ${tr.damaged ? `<div class="muted">⚠️ <b>${t('damaged_bold')}</b></div>` : ''}
+    ${tr.comment
+      ? `<div style="margin-top:6px">
+           <div class="muted">${t('comment')}:</div>
+           <div><b>${escapeHtml(tr.comment)}</b></div>
+         </div>`
+      : `<div class="muted">${t('no_comment')}</div>`}
+  </div>
+`;
   } catch (e) {
     console.error(e);
-    trInfoBody.innerHTML = `<div class="muted">Ошибка загрузки</div>`;
+    trInfoBody.innerHTML = `<div class="muted">${t('load_error')}</div>`;
   }
 }
 async function pollTransferUpdates() {
@@ -441,15 +440,21 @@ async function pollTransferUpdates() {
   const updates = r.updates || [];
   if (!updates.length) return;
 
-  for (const t of updates) {
-    if (t.status === 'REJECTED') {
-      // ✅ главное уведомление
-      appToast(`⛔ ${t.toObjectName} отказался принять: ${t.name} ×${t.qty}. Баланс не изменился.`, { sticky: true });
-    } else if (t.status === 'ACCEPTED') {
-      // опционально — уведомление о принятии
-      appToast(`✅ ${t.toObjectName} принял: ${t.name} ×${t.qty}.`);
-    }
+  for (const uTr of updates) {
+  if (uTr.status === 'REJECTED') {
+    appToast(t('transfer_rejected_toast', {
+      to: uTr.toObjectName,
+      name: uTr.name,
+      qty: uTr.qty
+    }), { sticky: true });
+  } else if (uTr.status === 'ACCEPTED') {
+    appToast(t('transfer_accepted_toast', {
+      to: uTr.toObjectName,
+      name: uTr.name,
+      qty: uTr.qty
+    }));
   }
+}
 
   // обновляем sinceTs на максимальный actedTs
   const maxTs = updates.reduce((m, x) => Math.max(m, Number(x.actedTs || 0)), lastTransferUpdateTs);
@@ -573,13 +578,13 @@ async function initPushIfPossible() {
     if (Notification.permission === 'default') {
       // можно мягко: через confirm
       openConfirm({
-        title: 'Уведомления',
-        text: 'Разрешить уведомления о передачах? Тогда вы увидите их даже на заблокированном экране.',
-        yesText: 'Разрешить',
+        title: t('notifications_title'),
+        text: t('notifications_text'),
+        yesText: t('allow_btn'),
         onYes: async () => {
           const perm = await Notification.requestPermission();
           if (perm !== 'granted') {
-            appToast('Уведомления не разрешены');
+            appToast(t('notifications_denied'));
             return;
           }
           const pk = await store.getPushPublicKey();
@@ -588,7 +593,7 @@ async function initPushIfPossible() {
           const existing = await reg.pushManager.getSubscription();
           if (existing) {
             await store.pushSubscribe(existing);
-            appToast('✅ Уведомления включены');
+            appToast(t('notifications_enabled'));
             return;
           }
 
@@ -598,7 +603,7 @@ async function initPushIfPossible() {
           });
 
           await store.pushSubscribe(sub);
-          appToast('✅ Уведомления включены');
+          appToast(t('notifications_enabled'));
         }
       });
     }
@@ -625,7 +630,7 @@ function openWriteoff(itemId){
   if (!item) return;
 
   writeoffItemId = itemId;
-  wTitle.textContent = `${item.name} (доступно: ${item.quantity})`;
+  wTitle.textContent = `${item.name} (${t('available', { n: item.quantity })})`;
   wQty.value = '';
   wTo.value  = '';
   wError.textContent = '';
@@ -637,10 +642,10 @@ wSave.onclick = async () => {
   if (!item) return;
 
   const n = Number(wQty.value);
-  if (!Number.isFinite(n) || n <= 0) { wError.textContent = 'Количество должно быть числом > 0'; return; }
-  if (n > item.quantity) { wError.textContent = 'Недостаточно остатка'; return; }
+  if (!Number.isFinite(n) || n <= 0) { wError.textContent = t('qty_must_be_gt0'); return; }
+  if (n > item.quantity) { wError.textContent = t('not_enough_balance'); return; }
 
-  const to = (wTo.value || 'Списание').trim();
+  const to = (wTo.value || t('writeoff_default_to')).trim();
 
   wSave.disabled = true;
   try {
@@ -652,11 +657,14 @@ wSave.onclick = async () => {
       type: 'out'
     });
 
-    if (!res.ok) { wError.textContent = `Ошибка списания: ${res.error || 'server'}`; return; }
+    if (!res.ok) {
+  wError.textContent = t('writeoff_error', { err: res.error || 'server' });
+  return;
+}
 
     writeoffModal.classList.add('hidden');
     await renderList(searchInput.value);
-    appToast('✅ Списано');
+    appToast(t('written_off'));
   } finally {
     wSave.disabled = false;
   }
@@ -716,7 +724,7 @@ async function updateTransferBadge(){
   if (nTotal > 0) {
     transferBadge.textContent = String(nTotal);
     transferBadge.classList.remove('hidden');
-    transferBadge.title = `Входящие: ${nIn}, Исходящие: ${nOut}`;
+    transferBadge.title = t('badge_title', { nIn, nOut });
   } else {
     transferBadge.classList.add('hidden');
   }
@@ -760,17 +768,17 @@ if (confirmTransfer) {
     transferError.textContent = '';
 
     const u = await store.currentUserObj();
-    if (!u || u.role !== 'user') { transferError.textContent = 'Нет доступа'; return; }
+    if (!u || u.role !== 'user') { transferError.textContent = t('no_access'); return; }
 
     const item = store.getItem(transferItemId);
-    if (!item) { transferError.textContent = 'Товар не найден'; return; }
+    if (!item) { transferError.textContent = t('item_not_found'); return; }
 
     const toObjectId = transferTo.value;
     const qty = Number(transferQty.value);
 
-    if (!toObjectId) { transferError.textContent = 'Выберите объект'; return; }
-    if (!Number.isFinite(qty) || qty <= 0) { transferError.textContent = 'Количество должно быть > 0'; return; }
-    if (qty > item.quantity) { transferError.textContent = 'Недостаточно остатка'; return; }
+    if (!toObjectId) { transferError.textContent = t('choose_object'); return; }
+    if (!Number.isFinite(qty) || qty <= 0) { transferError.textContent = t('qty_gt0'); return; }
+    if (qty > item.quantity) { transferError.textContent = t('not_enough'); return; }
 
     confirmTransfer.disabled = true;
     try {
@@ -780,9 +788,9 @@ if (confirmTransfer) {
     const r = await store.createTransfer({ itemId: item.id, toObjectId, qty, damaged, comment });
       if (!r.ok) {
         const msg =
-          r.error === 'not-enough' ? 'Недостаточно остатка' :
-          r.error === 'same-object' ? 'Нельзя передать на тот же объект' :
-          `Ошибка: ${r.status || ''} ${r.error || 'server'}`;
+          r.error === 'not-enough' ? t('not_enough') :
+          r.error === 'same-object' ? t('same_object') :
+          `${t('error')}: ${r.status || ''} ${r.error || 'server'}`;
         transferError.textContent = msg;
         return;
       }
@@ -790,7 +798,7 @@ if (confirmTransfer) {
       await closeTransferModal();
       await renderList(searchInput.value);
       await updateTransferBadge();
-      appToast('📤 Передача создана');
+      appToast(t('transfer_created'));
     } finally {
       confirmTransfer.disabled = false;
     }
@@ -803,7 +811,7 @@ async function openIncomingTransfers() {
 
   if (!incomingList || !incomingModal) return;
 
-  incomingList.innerHTML = `<li><span class="muted">Загрузка…</span></li>`;
+  incomingList.innerHTML = `<li><span class="muted">${t('loading')}</span></li>`;
   incomingModal.classList.remove('hidden');
   document.body.classList.add('modal-open');
 
@@ -814,7 +822,7 @@ async function openIncomingTransfers() {
 
   if (!inc.ok && !out.ok) {
     incomingList.innerHTML =
-      `<li><span class="muted">Ошибка: ${inc.status || out.status || ''} ${inc.error || out.error || ''}</span></li>`;
+      `<li><span class="muted">${t('error')}: ${inc.status || out.status || ''} ${inc.error || out.error || ''}</span></li>`;
     return;
   }
 
@@ -824,33 +832,33 @@ async function openIncomingTransfers() {
   incomingList.innerHTML = '';
 
   const headIn = document.createElement('li');
-  headIn.innerHTML = `<b>📥 Входящие (ожидают)</b>`;
+  headIn.innerHTML = `<b>${t('incoming_head')}</b>`;
   incomingList.appendChild(headIn);
 
   if (!incoming.length) {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="muted">Нет входящих передач</span>`;
+    li.innerHTML = `<span class="muted">${t('no_incoming')}</span>`;
     incomingList.appendChild(li);
   } else {
-    incoming.forEach(t => {
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-          <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
-          <div class="muted">Откуда: <b>${escapeHtml(t.fromObjectName || '—')}</b></div>
-          <div class="muted">Кол-во: <b>${t.qty}</b></div>
-          <div class="muted">${escapeHtml(t.time || '')}</div>
-           ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
-          ${t.comment ? `<div class="muted">💬 ${escapeHtml(t.comment)}</div>` : ''}
+    incoming.forEach(tr => {
+  const li = document.createElement('li');
+  li.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+      <div><b>${escapeHtml(tr.name)}</b> <span class="muted">(${escapeHtml(tr.code)})</span></div>
+      <div class="muted">${t('from_where')}: <b>${escapeHtml(tr.fromObjectName || '—')}</b></div>
+      <div class="muted">${t('qty_short')}: <b>${tr.qty}</b></div>
+      <div class="muted">${escapeHtml(tr.time || '')}</div>
+      ${tr.damaged ? `<div class="muted">⚠️ <b>${t('damaged_bold')}</b></div>` : ''}
+      ${tr.comment ? `<div class="muted">💬 ${escapeHtml(tr.comment)}</div>` : ''}
 
-          <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
-            <button class="btn btn-primary" data-accept="${t.id}">✅ Принять</button>
-            <button class="btn btn-danger" data-reject="${t.id}">✖ Отклонить</button>
-          </div>
-        </div>
-      `;
-      incomingList.appendChild(li);
-    });
+      <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+        <button class="btn btn-primary" data-accept="${tr.id}">${t('accept_btn')}</button>
+        <button class="btn btn-danger" data-reject="${tr.id}">${t('reject_btn')}</button>
+      </div>
+    </div>
+  `;
+  incomingList.appendChild(li);
+});
   }
 
   const hr = document.createElement('li');
@@ -858,42 +866,45 @@ async function openIncomingTransfers() {
   incomingList.appendChild(hr);
 
   const headOut = document.createElement('li');
-  headOut.innerHTML = `<b>📤 Исходящие (ожидают подтверждения)</b>`;
+  headOut.innerHTML = `<b>📤 ${t('outgoing_head')}</b>`;
   incomingList.appendChild(headOut);
 
   if (!outgoing.length) {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="muted">Нет исходящих ожиданий</span>`;
+    li.innerHTML = `<span class="muted">${t('no_outgoing')}</span>`;
     incomingList.appendChild(li);
   } else {
-    outgoing.forEach(t => {
+    outgoing.forEach(tr => {
       const li = document.createElement('li');
       li.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-          <div><b>${escapeHtml(t.name)}</b> <span class="muted">(${escapeHtml(t.code)})</span></div>
-          <div class="muted">Куда: <b>${escapeHtml(t.toObjectName || '—')}</b></div>
-          <div class="muted">Кол-во: <b>${t.qty}</b></div>
-          <div class="muted">${escapeHtml(t.time || '')}</div>
-          ${t.damaged ? `<div class="muted">⚠️ <b>Повреждено</b></div>` : ''}
-          ${t.comment ? `<div class="muted">💬 ${escapeHtml(t.comment)}</div>` : ''}
-          <div class="muted">Статус: <b>ожидает</b></div>
+          <div><b>${escapeHtml(tr.name)}</b> <span class="muted">(${escapeHtml(tr.code)})</span></div>
+
+          <div class="muted">${t('to_where')}: <b>${escapeHtml(tr.toObjectName || '—')}</b></div>
+          <div class="muted">${t('qty_short')}: <b>${tr.qty}</b></div>
+          <div class="muted">${escapeHtml(tr.time || '')}</div>
+
+          ${tr.damaged ? `<div class="muted">⚠️ <b>${t('damaged_bold')}</b></div>` : ''}
+          ${tr.comment ? `<div class="muted">💬 ${escapeHtml(tr.comment)}</div>` : ''}
+
+          <div class="muted">${t('status')}: <b>${t('status_waiting')}</b></div>
         </div>
       `;
       incomingList.appendChild(li);
     });
   }
 
-  incomingList.querySelectorAll('[data-accept]').forEach(btn => {
+   incomingList.querySelectorAll('[data-accept]').forEach(btn => {
     btn.onclick = async () => {
       btn.disabled = true;
       const id = btn.getAttribute('data-accept');
       const r = await store.acceptTransfer(id);
       if (!r.ok) {
-        window.appToast?.(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+        window.appToast?.(`${t('error')}: ${r.status || ''} ${r.error || ''}`.trim());
         btn.disabled = false;
         return;
       }
-      window.appToast?.('✅ Принято');
+      window.appToast?.(t('accepted_toast'));
       await renderList(document.getElementById('search')?.value || '');
       await updateTransferBadge();
       await openIncomingTransfers();
@@ -906,11 +917,11 @@ async function openIncomingTransfers() {
       const id = btn.getAttribute('data-reject');
       const r = await store.rejectTransfer(id);
       if (!r.ok) {
-        window.appToast?.(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+        window.appToast?.(`${t('error')}: ${r.status || ''} ${r.error || ''}`.trim());
         btn.disabled = false;
         return;
       }
-      window.appToast?.('⛔ Отклонено');
+      window.appToast?.(t('rejected_toast'));
       await updateTransferBadge();
       await openIncomingTransfers();
     };
@@ -927,6 +938,7 @@ if (transferBtn) {
 // ================================
 const objectsList = document.getElementById('objectsList');
 const usersList   = document.getElementById('usersList');
+
 // ✅ EVENT DELEGATION: удаление объектов (всегда работает, даже после перерендера)
 if (objectsList) {
   objectsList.addEventListener('click', async (e) => {
@@ -934,17 +946,17 @@ if (objectsList) {
     if (!btn) return;
 
     const id = btn.getAttribute('data-del-obj');
-    const name = store.getObjectById(id)?.name || 'Склад';
+    const name = store.getObjectById(id)?.name || t('warehouse_fallback');
 
     openConfirm({
-      title: 'Удалить склад?',
-      text: `Склад "${name}" будет деактивирован (и все пользователи этого склада тоже). Продолжить?`,
-      yesText: 'Да',
+      title: t('confirm_delete_warehouse_title'),
+      text: t('confirm_delete_warehouse_text', { name }),
+      yesText: t('yes'),
       onYes: () => {
         openConfirm({
-          title: 'Точно удалить?',
-          text: `Подтвердите удаление склада "${name}".`,
-          yesText: 'Удалить',
+          title: t('confirm_delete_warehouse_title2'),
+          text: t('confirm_delete_warehouse_text2', { name }),
+          yesText: t('delete'),
           onYes: async () => {
             // ✅ UX: сразу убираем из UI
             const li = btn.closest('li');
@@ -952,7 +964,7 @@ if (objectsList) {
 
             const r = await store.adminDeleteObject(id);
             if (!r.ok) {
-              appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+              appToast(`${t('error')}: ${r.status || ''} ${r.error || ''}`.trim());
               // откатимся к актуальному состоянию
               await store.getObjects();
               await initAdminObjectSelect();
@@ -961,7 +973,7 @@ if (objectsList) {
               return;
             }
 
-            appToast('✅ Склад удалён');
+            appToast(t('warehouse_deleted_toast'));
             await store.getObjects();
             await initAdminObjectSelect();
             renderAdmin();
@@ -982,14 +994,14 @@ if (usersList) {
     const id = btn.getAttribute('data-del-user');
 
     openConfirm({
-      title: 'Удалить пользователя?',
-      text: 'Пользователь будет деактивирован и не сможет войти. Продолжить?',
-      yesText: 'Да',
+      title: t('confirm_delete_user_title'),
+      text: t('confirm_delete_user_text'),
+      yesText: t('yes'),
       onYes: () => {
         openConfirm({
-          title: 'Точно удалить?',
-          text: 'Подтвердите удаление пользователя.',
-          yesText: 'Удалить',
+          title: t('confirm_delete_user_title2'),
+          text: t('confirm_delete_user_text2'),
+          yesText: t('delete'),
           onYes: async () => {
             // ✅ UX: сразу убираем из UI
             const li = btn.closest('li');
@@ -999,15 +1011,15 @@ if (usersList) {
             if (!r.ok) {
               const msg =
                 r.error === 'cannot-delete-self'
-                  ? 'Нельзя удалить себя'
-                  : `Ошибка: ${r.status || ''} ${r.error || ''}`;
+                  ? t('cannot_delete_self')
+                  : `${t('error')}: ${r.status || ''} ${r.error || ''}`;
               appToast(msg.trim());
 
               await renderAdminUsers();
               return;
             }
 
-            appToast('✅ Пользователь удалён');
+            appToast(t('user_deleted_toast'));
             await renderAdminUsers();
           }
         });
@@ -1039,7 +1051,7 @@ async function renderAdminUsers(){
 
   const r = await store.getUsers();
   if (!r.ok) {
-    usersList.innerHTML = `<li><span class="muted">Ошибка загрузки пользователей</span></li>`;
+    usersList.innerHTML = `<li><span class="muted">${t('users_load_error')}</span></li>`;
     return;
   }
 
@@ -1050,7 +1062,7 @@ async function renderAdminUsers(){
     .filter(u => u.id !== me?.id);
 
   if (!users.length) {
-    usersList.innerHTML = `<li><span class="muted">Пользователей нет</span></li>`;
+    usersList.innerHTML = `<li><span class="muted">${t('no_users')}</span></li>`;
     return;
   }
 
@@ -1070,45 +1082,6 @@ async function renderAdminUsers(){
 
     usersList.appendChild(li);
   });
-
-  // usersList.querySelectorAll('[data-del-user]').forEach(btn => {
-  //   btn.onclick = async () => {
-  //     const id = btn.getAttribute('data-del-user');
-
-  //     openConfirm({
-  //       title: 'Удалить пользователя?',
-  //       text: `Пользователь будет деактивирован и не сможет войти. Продолжить?`,
-  //       yesText: 'Да',
-  //       onYes: () => {
-  //         openConfirm({
-  //           title: 'Точно удалить?',
-  //           text: `Подтвердите удаление пользователя.`,
-  //           yesText: 'Удалить',
-  //           onYes: async () => {
-  //             // ✅ моментально убираем из списка (без CSS.escape, чтобы нигде не падало)
-  //             removeListRowByDataset(usersList, 'userId', id);
-
-  //             const resp = await store.adminDeleteUser(id);
-  //             if (!resp.ok) {
-  //               const msg =
-  //                 resp.error === 'cannot-delete-self'
-  //                   ? 'Нельзя удалить себя'
-  //                   : `Ошибка: ${resp.status || ''} ${resp.error || ''}`;
-  //               appToast(msg.trim());
-
-  //               // ✅ откат/синхронизация
-  //               await renderAdminUsers();
-  //               return;
-  //             }
-
-  //             appToast('✅ Пользователь удалён');
-  //             await renderAdminUsers(); // ✅ финальная синхронизация
-  //           }
-  //         });
-  //       }
-  //     });
-  //   };
-  // });
 }
 
 // --- Object modal ---
@@ -1128,16 +1101,16 @@ if (objCancel) objCancel.onclick = () => {
 if (objSave) objSave.onclick = async () => {
   objError.textContent = '';
   const name = (objName.value || '').trim();
-  if (!name) { objError.textContent = 'Введите название'; return; }
+  if (!name) { objError.textContent = t('enter_warehouse_name'); return; }
 
   objSave.disabled = true;
   try {
     const r = await store.adminCreateObject({ name });
     if (!r.ok) {
       const msg =
-        r.error === 'object-exists' ? 'Такой склад уже существует' :
-        r.error === 'name-required' ? 'Название обязательно' :
-        `Ошибка: ${r.status || ''} ${r.error || ''}`;
+        r.error === 'object-exists' ? t('warehouse_exists') :
+        r.error === 'name-required' ? t('name_required') :
+        `${t('error')}: ${r.status || ''} ${r.error || ''}`;
       objError.textContent = msg.trim();
       return;
     }
@@ -1148,7 +1121,7 @@ if (objSave) objSave.onclick = async () => {
     await store.getObjects();
     await initAdminObjectSelect();
     renderAdmin();
-    appToast('✅ Склад создан');
+    appToast(t('warehouse_created_toast'));
   } finally {
     objSave.disabled = false;
   }
@@ -1165,7 +1138,7 @@ if (openAddUser) openAddUser.onclick = async () => {
   const objs = await store.getObjects();
   if (uObject) {
     uObject.innerHTML =
-      `<option value="">Выберите склад</option>` +
+      `<option value="">${t('choose_warehouse')}</option>` +
       (objs || []).map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
   }
 
@@ -1185,19 +1158,19 @@ if (uSave) uSave.onclick = async () => {
   const password = String(uPass.value || '');
   const objectId = uObject?.value || '';
 
-  if (!login) { uError.textContent = 'Введите логин'; return; }
-  if (!password || password.length < 4) { uError.textContent = 'Пароль минимум 4 символа'; return; }
-  if (!objectId) { uError.textContent = 'Выберите склад'; return; }
+  if (!login) { uError.textContent = t('enter_login'); return; }
+  if (!password || password.length < 4) { uError.textContent = t('pwd_min_4'); return; }
+  if (!objectId) { uError.textContent = t('choose_warehouse_error'); return; }
 
   uSave.disabled = true;
   try {
     const r = await store.adminCreateUser({ login, password, role: 'user', objectId });
     if (!r.ok) {
       const msg =
-        r.error === 'login-exists' ? 'Логин уже занят' :
-        r.error === 'object-not-found' ? 'Склад не найден' :
-        r.error === 'weak-password' ? 'Слишком простой пароль' :
-        `Ошибка: ${r.status || ''} ${r.error || ''}`;
+        r.error === 'login-exists' ? t('login_taken') :
+        r.error === 'object-not-found' ? t('warehouse_not_found') :
+        r.error === 'weak-password' ? t('pwd_too_simple') :
+        `${t('error')}: ${r.status || ''} ${r.error || ''}`;
       uError.textContent = msg.trim();
       return;
     }
@@ -1205,7 +1178,7 @@ if (uSave) uSave.onclick = async () => {
     addUserModal.classList.add('hidden');
     document.body.classList.remove('modal-open');
 
-    appToast('✅ Пользователь создан (попросит смену пароля)');
+    appToast(t('user_created_toast'));
     await renderAdminUsers();
   } finally {
     uSave.disabled = false;
@@ -1221,7 +1194,7 @@ const cNo    = document.getElementById('cNo');
 
 let confirmAction = null;
 
-function openConfirm({ title='Подтверждение', text='', onYes=null, yesText='Ок' }) {
+function openConfirm({ title = t('confirm_title'), text = '', onYes = null, yesText = t('ok') }) {
   cTitle.textContent = title;
   cText.textContent  = text;
   cYes.textContent   = yesText;
@@ -1299,7 +1272,7 @@ const r = await store.changePassword(a, old);
   r.error === 'inactive' ? 'Аккаунт деактивирован' :
   r.error === 'old-required' ? 'Введите старый пароль' :
   r.error === 'old-invalid' ? 'Старый пароль неверный' :
-  `Ошибка: ${r.status || ''} ${r.error || ''}`;
+  `${t('error')}: ${r.status || ''} ${r.error || ''}`;
 pError.textContent = msg.trim();
 return;
       }
@@ -1341,7 +1314,7 @@ async function initAdminObjectSelect(){
 
     currentObjectSpan.textContent =
       adminSelectedObjectId === 'all'
-        ? 'Все склады'
+        ? t('all_warehouses')
         : (store.getObjectById(adminSelectedObjectId)?.name || 'Склад');
 
     await renderList(searchInput.value);
@@ -1534,7 +1507,7 @@ if (adminReportBtn) adminReportBtn.onclick = openReportModal;
 if (loginBtn) loginBtn.onclick = async () => {
   const res = await store.loginUser(loginInput.value.trim(), passInput.value.trim());
   if (!res.ok) {
-    loginError.textContent = `❌ Ошибка входа: ${res.status || ''} ${res.error || ''}`.trim();
+    loginError.textContent = t('login_error', { status: res.status || '', error: res.error || '' }).trim();
     setTimeout(() => (loginError.textContent=''), 4000);
     return;
   }
@@ -1561,7 +1534,7 @@ if (logoutBtn) logoutBtn.onclick = async () => {
   passInput.value = '';
   loginError.textContent = '';
   listEl.innerHTML = '';
-  appToast('Вы вышли');
+  appToast(t('logged_out'));
 };
 
 async function afterLogin(){
@@ -1586,7 +1559,7 @@ if (!btn) {
   btn = document.createElement('button');
   btn.id = 'adminChangePwdBtn';
   btn.className = 'btn btn-secondary';
-  btn.textContent = '🔑 Сменить пароль';
+  btn.textContent = t('change_pwd_btn');
   btn.style.marginTop = '12px';
 
   btn.onclick = () => {
@@ -1621,7 +1594,7 @@ window.__transferBadgeTimer = setInterval(() => {
   // показать очередь (если есть)
 try {
   const n = await store.queueCount?.();
-  if (n > 0) appToast(`⏳ Офлайн-очередь: ${n} действий (отправится при появлении сети)`, { sticky: true });
+  if (n > 0) appToast(t('offline_queue_toast', { n }), { sticky: true });
 } catch {}
   renderAdmin();
   setNetStatus();
@@ -1793,7 +1766,7 @@ async function renderList(filter=''){
     onYes: async () => {
       const r = await store.deleteItem(id);
       if (!r.ok) {
-        appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+        appToast(`${t('error')}: ${r.status || ''} ${r.error || ''}`.trim());
         return;
       }
       appToast('✅ Удалено');
@@ -1822,7 +1795,7 @@ searchInput.addEventListener('input', async (e) => {
     setNetStatus();
 window.addEventListener('online', () => { setNetStatus(); refreshQueueChip(); });
 window.addEventListener('offline', () => setNetStatus());
-    splashSetText("Проверяем сессию…");
+    splashSetText(t('check_session'));
     splashSetProgress(20);
 
     const u = await store.currentUserObj();
@@ -1833,7 +1806,7 @@ window.addEventListener('offline', () => setNetStatus());
       return;
     }
 
-    splashSetText("Загружаем данные…");
+    splashSetText(t('loading_data'));
     splashSetProgress(50);
 
     loginBox.classList.add('hidden');

@@ -2,6 +2,7 @@
 // Камера (Html5Qrcode) + приход через модалку (с unit)
 
 import './store.js';
+import { t } from './i18n.js';
 
 const store = window.store;
 
@@ -117,25 +118,25 @@ function syncUnitCustomVisibility(){
 
 if (mUnit) mUnit.addEventListener('change', syncUnitCustomVisibility);
 
-// ===== Scanner logic (как раньше) =====
+// ===== Scanner logic =====
 async function startScanner(){
   const u = await store.currentUserObj();
   if (!u || u.role !== 'user') {
-    toast('Нет доступа к камере (только для кладовщика).');
+    toast(t('camera_only_user'));
     return;
   }
 
   if (scanning) return;
 
   cameraBox?.classList.remove('hidden');
-  if (statusEl) statusEl.textContent = '📷 Камера активна';
+  if (statusEl) statusEl.textContent = t('camera_active');
   await new Promise(r => setTimeout(r, 80));
 
   // Html5Qrcode грузится через <script src="https://unpkg.com/html5-qrcode"></script>
   if (typeof window.Html5Qrcode !== 'function') {
     console.error('Html5Qrcode is not loaded');
     scanning = false;
-    if (statusEl) statusEl.textContent = '❌ Библиотека камеры не загрузилась';
+    if (statusEl) statusEl.textContent = t('camera_lib_missing');
     return;
   }
 
@@ -153,7 +154,7 @@ async function startScanner(){
   } catch (e) {
     console.error(e);
     scanning = false;
-    if (statusEl) statusEl.textContent = '❌ Не удалось запустить камеру';
+    if (statusEl) statusEl.textContent = t('camera_start_failed');
   }
 }
 
@@ -192,16 +193,16 @@ if (mSave) mSave.onclick = async () => {
   const qty  = mQty?.value;
   const from = String(mFrom?.value || '').trim() || '—';
 
-  if (!code) { if (mError) mError.textContent = 'Введите штрихкод'; return; }
-  if (!name) { if (mError) mError.textContent = 'Введите название'; return; }
-  if (!validateQty(qty)) { if (mError) mError.textContent = 'Количество должно быть числом > 0'; return; }
+  if (!code) { if (mError) mError.textContent = t('enter_barcode'); return; }
+  if (!name) { if (mError) mError.textContent = t('enter_name2'); return; }
+  if (!validateQty(qty)) { if (mError) mError.textContent = t('qty_must_be_gt0'); return; }
 
   const existing = store.getItemByCodeForCurrentObject?.(code) || null;
   const unitFinal = getUnitFinal();
 
   // unit обязателен только для нового товара
   if (!existing && !unitFinal) {
-    if (mError) mError.textContent = 'Выберите единицу измерения';
+    if (mError) mError.textContent = t('unit_required');
     return;
   }
 
@@ -218,15 +219,18 @@ if (mSave) mSave.onclick = async () => {
 
     if (!res.ok) {
       const msg =
-        res.error === 'unit-required' ? 'Выберите единицу измерения' :
-        `Ошибка сохранения: ${res.error || 'server'}`;
+        res.error === 'unit-required'
+          ? t('unit_required')
+          : t('save_error', { err: res.error || 'server' });
       if (mError) mError.textContent = msg;
       return;
     }
 
     closeIntakeModal();
     await window.renderList?.(document.getElementById('search')?.value || '');
-    toast(res.queued ? '⏳ Добавлено в офлайн-очередь' : '✅ Сохранено');
+
+    // queued / saved
+    toast(res.queued ? t('queued_toast') : `✅ ${t('saved_title')}`);
 
     if (intakeSource === 'scan') {
       openContinueModal();
@@ -247,7 +251,7 @@ if (contNo) contNo.onclick = closeContinueModal;
 // manual add
 if (manualBtn) manualBtn.onclick = async () => {
   const u = await store.currentUserObj();
-  if (!u || u.role !== 'user') { toast('Только кладовщик может добавлять.'); return; }
+  if (!u || u.role !== 'user') { toast(t('only_storekeeper')); return; }
   openIntakeModal({ code: '', prefillName: '', lock: false, source: 'manual' });
 };
 
