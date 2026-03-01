@@ -265,7 +265,7 @@ yes: "Так",
 delete: "Видалити",
 
 confirm_delete_warehouse_title: "Видалити склад?",
-confirm_delete_warehouse_text: "Склад \"{name}\" буде деактивирований (і всі користувачі цтого склада також). Продовжити?",
+confirm_delete_warehouse_text: "Склад \"{name}\" буде деактивирований (і всі користувачі цього склада також). Продовжити?",
 confirm_delete_warehouse_title2: "Точно видалити?",
 confirm_delete_warehouse_text2: "Підтвердіть видалення складу \"{name}\".",
 
