@@ -265,7 +265,7 @@ yes: "Так",
 delete: "Видалити",
 
 confirm_delete_warehouse_title: "Видалити склад?",
-confirm_delete_warehouse_text: "Склад \"{name}\" буде деактивирований (і всі користувачі цтого склада також). Продовжити?",
+confirm_delete_warehouse_text: "Склад \"{name}\" буде деактивирований (і всі користувачі цього склада також). Продовжити?",
 confirm_delete_warehouse_title2: "Точно видалити?",
 confirm_delete_warehouse_text2: "Підтвердіть видалення складу \"{name}\".",
 
@@ -289,6 +289,7 @@ name_required: "Назва обов'язково",
 
 choose_warehouse: "Оберіть склад",
 choose_warehouse_error: "Оберіть склад",
+choose_t:"Оберіть товар",
 
 enter_login: "Введіть логін",
 pwd_min_4: "Пароль мінімум 4 символи",
@@ -553,6 +554,7 @@ name_required: "Название обязательно",
 
 choose_warehouse: "Выберите склад",
 choose_warehouse_error: "Выберите склад",
+choose_t:"Выберите товар",
 
 enter_login: "Введите логин",
 pwd_min_4: "Пароль минимум 4 символа",

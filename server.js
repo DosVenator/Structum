@@ -561,7 +561,10 @@ app.delete('/api/items/:id', requireAuth, async (req, res, next) => {
 
     if (u.role !== 'admin' && item.objectId !== u.objectId) return res.status(403).json({ ok: false, error: 'forbidden' });
 
-    await prisma.item.update({ where: { id }, data: { active: false } });
+    await prisma.item.update({
+  where: { id },
+  data: { active: false, quantity: 0 }
+});
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -650,52 +653,83 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
     const code = String(req.body.code || '').replace(/\s+/g, '');
     const name = String(req.body.name || '').trim();
     const unit = String(req.body.unit || '').trim();
-    const qty = Number(req.body.qty);
+    const qty  = Number(req.body.qty);
     const from = String(req.body.from || '—').trim();
     const type = String(req.body.type || '').trim();
-    
-    if (!code || !name) return res.status(400).json({ ok: false, error: 'bad-request' });
+
+    if (!code) return res.status(400).json({ ok: false, error: 'bad-request' });
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok: false, error: 'qty' });
     if (type !== 'in' && type !== 'out') return res.status(400).json({ ok: false, error: 'type' });
 
     const { ts, time } = nowMeta();
 
-    const item = await prisma.item.findFirst({
-  where: { 
-    objectId: u.objectId,
-    code,
-    active: true
-  }
-});
+    const result = await prisma.$transaction(async (tx) => {
+      // ✅ ищем item по (objectId, code) БЕЗ фильтра active
+      let item = await tx.item.findUnique({
+        where: { objectId_code: { objectId: u.objectId, code } }
+      });
 
-let ensuredItem = item;
+      // если не нашли — создаём (тут name обязателен, unit желательно)
+      if (!item) {
+        if (!name) return { err: { status: 400, error: 'name-required' } };
+        item = await tx.item.create({
+          data: {
+            objectId: u.objectId,
+            code,
+            name,
+            unit: unit || null,
+            quantity: 0,
+            active: true
+          }
+        });
+      }
 
-if (!item) {
-  // ✅ новый товар — тут name + unit обязателен
-  if (!unit) return res.status(400).json({ ok: false, error: 'unit-required' });
+      // ✅ если item был удалён (inactive), то он обязан быть quantity=0 (мы это делаем в DELETE)
+      // но на всякий случай — реактивируем при любом приходе/операции
+      if (item.active === false) {
+        item = await tx.item.update({
+          where: { id: item.id },
+          data: { active: true } // quantity не трогаем (он должен быть 0)
+        });
+      }
 
-  ensuredItem = await prisma.item.create({
-    data: { objectId: u.objectId, code, name, unit, quantity: 0, active: true }
-  });
-} 
+      const newQty =
+        type === 'in'
+          ? item.quantity + qty
+          : Math.max(0, item.quantity - qty);
 
-const newQty = type === 'in'
-  ? ensuredItem.quantity + qty
-  : Math.max(0, ensuredItem.quantity - qty);
+      // ✅ обновляем только quantity/active, name/unit НЕ трогаем
+      const updatedItem = await tx.item.update({
+        where: { id: item.id },
+        data: {
+          quantity: newQty,
+          active: newQty > 0 ? true : item.active, // не выключаем автоматически, только если хочешь
+        }
+      });
 
-const updated = await prisma.item.update({
-  where: { id: ensuredItem.id },
-  data: {
-    // ✅ name НЕ трогаем здесь
-    quantity: newQty,
-    operations: {
-      create: { type, qty, from, ts, time, objectId: u.objectId, userId: u.id }
-    }
-  }
-});
+      // операция отдельно (чтобы было проще и не мешать update)
+      await tx.operation.create({
+        data: {
+          type,
+          qty,
+          from,
+          ts,
+          time,
+          objectId: u.objectId,
+          itemId: updatedItem.id,
+          userId: u.id
+        }
+      });
 
-res.json({ ok: true, item: updated });
+      return { item: updatedItem };
+    });
+
+    if (result?.err) return res.status(result.err.status).json({ ok: false, error: result.err.error });
+
+    res.json({ ok: true, item: result.item });
   } catch (e) {
+    // если вдруг где-то одновременно создали item — конфликт unique
+    if (e?.code === 'P2002') return res.status(409).json({ ok: false, error: 'item-exists' });
     next(e);
   }
 });
@@ -1026,33 +1060,29 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
     }
   });
 
-  // ✅ 2) Товар получателя: если уже есть активный — увеличиваем, иначе создаём
-  const receiverExisting = await tx.item.findFirst({
-    where: { objectId: tr.toObjectId, code: tr.code, active: true }
-  });
-
-  let receiverItem;
-  if (receiverExisting) {
-    receiverItem = await tx.item.update({
-      where: { id: receiverExisting.id },
-      data: {
-        quantity: receiverExisting.quantity + tr.qty,
-        active: true
-        // ⚠️ name/unit НЕ трогаем — это важно для твоего кейса с разными названиями
-      }
-    });
-  } else {
-    receiverItem = await tx.item.create({
-      data: {
-        objectId: tr.toObjectId,
-        code: tr.code,
-        name: tr.name,
-        unit: tr.unit || null,
-        quantity: tr.qty,
-        active: true
-      }
-    });
+  // ✅ // ✅ 2) Товар получателя: один item на код.
+// Если был inactive — реактивируем и плюсуем.
+const receiverItem = await tx.item.upsert({
+  where: {
+    objectId_code: {
+      objectId: tr.toObjectId,
+      code: tr.code
+    }
+  },
+  update: {
+    active: true,
+    quantity: { increment: tr.qty }
+    // name/unit НЕ трогаем
+  },
+  create: {
+    objectId: tr.toObjectId,
+    code: tr.code,
+    name: tr.name,
+    unit: tr.unit || null,
+    quantity: tr.qty,
+    active: true
   }
+});
 
   await tx.operation.create({
     data: {
@@ -1092,6 +1122,9 @@ app.post('/api/transfers/:id/accept', requireAuth, requireUser, async (req, res,
       });
     } catch {}
   } catch (e) {
+    if (e?.code === 'P2002') {
+      return res.status(409).json({ ok: false, error: 'item-unique-conflict' });
+    }
     next(e);
   }
 });

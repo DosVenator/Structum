@@ -1407,7 +1407,7 @@ async function fillReportItemSelect(){
     .sort((a,b) => String(a.name).localeCompare(String(b.name), 'ru'));
 
   rItem.innerHTML =
-    `<option value="">Выберите товар</option>` +
+    `<option value="">${t('choose_t')}</option>` +
     arr.map(x => `<option value="${escapeHtml(x.code)}">${escapeHtml(x.name)}</option>`).join('');
 }
 
