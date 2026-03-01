@@ -167,6 +167,26 @@ function escapeHtml(s) {
 /* ===========================
    ✅ Helpers: safe DOM remove
    =========================== */
+   function openRenameModal(itemId){
+  const item = store.getItem(itemId);
+  if (!item) return;
+
+  const nextName = prompt('Новое название товара:', item.name);
+  if (nextName === null) return;
+
+  const name = String(nextName || '').trim();
+  if (!name) { appToast('Название не может быть пустым'); return; }
+
+  (async () => {
+    const r = await store.renameItem(itemId, name);
+    if (!r.ok) {
+      appToast(`Ошибка: ${r.status || ''} ${r.error || ''}`.trim());
+      return;
+    }
+    appToast('✅ Название изменено');
+    await renderList(searchInput.value);
+  })();
+}
 function removeListRowByDataset(listNode, datasetKey, id) {
   if (!listNode || !id) return false;
   const rows = listNode.querySelectorAll('li');

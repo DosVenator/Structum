@@ -649,6 +649,7 @@ app.post('/api/ops', requireAuth, requireUser, async (req, res, next) => {
 
     const code = String(req.body.code || '').replace(/\s+/g, '');
     const name = String(req.body.name || '').trim();
+    const unit = String(req.body.unit || '').trim();
     const qty = Number(req.body.qty);
     const from = String(req.body.from || '—').trim();
     const type = String(req.body.type || '').trim();

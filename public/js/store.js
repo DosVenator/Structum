@@ -163,7 +163,7 @@ async function addOperation({ code, name, unit = '', qty, from, type }) {
         request: {
           url: '/api/ops',
           method: 'POST',
-          body: { code, name, qty, from, type }
+          body: { code, name, unit, qty, from, type }
         }
       });
       _localDirty = true;
@@ -204,7 +204,22 @@ async function getHistory(itemId, { fromTs, toTs } = {}) {
   const r = await api(url);
   return r.history || [];
 }
+async function renameItem(id, name) {
+  try {
+    const r = await api(`/api/items/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: { name }
+    });
 
+    const updated = r.item;
+    const idx = _items.findIndex(x => x.id === updated.id);
+    if (idx >= 0) _items[idx] = updated;
+
+    return { ok: true, item: updated };
+  } catch (e) {
+    return { ok: false, status: e.status, error: e.data?.error || e.message || 'server' };
+  }
+}
 // report
 async function adminGetReport({ objectId, fromTs, toTs, itemCode, type = 'all' }) {
   try {
@@ -416,6 +431,8 @@ window.store = {
   boot: () => _bootRestore,
   currentUserObj,
   changePassword,
+renameItem,
+
 
 queueCount,
 
