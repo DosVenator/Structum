@@ -1,6 +1,6 @@
 /* public/sw.js */
 
-const CACHE = 'structum-cache-v2';
+const CACHE = 'structum-cache-v3';
 const ASSETS = [
   '/',
   '/index.html',
